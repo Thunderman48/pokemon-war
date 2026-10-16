@@ -798,6 +798,7 @@ export class World {
       const d = Math.hypot(t.x - u.x, t.y - u.y);
       const beam = proj === 'breath' || proj === 'megabreath';
       const dur = beam ? Math.max(0.45, d / 220) : Math.max(0.12, d / 260);
+      if (beam) u.anim = dur + 0.25;
       const lift = isFlying(u) ? 12 : 6;
       // long Pokémon (Rayquaza) breathe from their mouth, not their middle
       const mouth = !isB && FORMS[u.form].mouth;

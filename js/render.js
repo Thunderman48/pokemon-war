@@ -276,7 +276,11 @@ export class Renderer {
     const anim = this.A.anim[e.form];
     const frame = anim ? Math.floor(now / 95 + e.id * 3) % anim.n : 0;
     const blit = () => {
-      if (anim) { const fw = anim.img.width / anim.n; ctx.drawImage(anim.img, frame * fw, 0, fw, anim.img.height, dx, dy, w, h); }
+      if (anim) {
+        // row 0: flying, mouth mostly closed; row 1: jaw wide open while attacking
+        const fw = anim.img.width / anim.n, fh = anim.img.height / 2, row = e.anim > 0 || e.order.type === 'cast' ? 1 : 0;
+        ctx.drawImage(anim.img, frame * fw, row * fh, fw, fh, dx, dy, w, h);
+      }
       else ctx.drawImage(img, dx, dy, w, h);
     };
     blit();

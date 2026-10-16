@@ -192,7 +192,7 @@ def serpent(cv, spine_pts, radius, pal, segments=10, mega=False, black=None):
     return sp, S, tang
 
 
-def head(cv, hx, hy, pal, mega=False, k=0.72):
+def head(cv, hx, hy, pal, mega=False, k=0.72, open_=1.0):
     """Small, sharp head facing right: a narrow beak-like snout under a raised brow crest,
     angry almond eye, jaw dropped wide open, long thin blade horns.
     (hx, hy) is where the neck meets the back of the skull. Returns the horn tips."""
@@ -213,22 +213,31 @@ def head(cv, hx, hy, pal, mega=False, k=0.72):
     # far-side horns (shadow)
     poly([(0, -5), (4, -6.5), (tip_v[0] + 5, tip_v[1] + 2)], pal["shadow"])
     poly([(-1, 1), (2, 2.5), (tip_j[0] + 6, tip_j[1] + 3)], pal["shadow"])
-    # lower jaw: thin, dropped wide open
-    poly([(2, 1.6), (7, 1.4), (13.5, 8.6), (12, 9.4), (2, 4)], pal["dark"])
+    # lower jaw swings from closed (tucked under the snout) to wide open
+    o = max(0.0, min(1.0, open_))
+    jx, jy = 20 + (13.5 - 20) * o, 2.6 + (8.6 - 2.6) * o
+    poly([(2, 1.6), (7, 1.4), (jx, jy), (jx - 1.5, jy + 0.8), (2, 4)], pal["dark"])
     # mouth
-    poly([(7, 1.3), (19, 1.3), (13, 8.2)], pal["mouth"])
-    poly([(9, 3), (13, 3.3), (13, 6.6)], pal["gum"])
-    line((7, 1.2), (19, 1.2), pal["lip"])
-    line((7, 1.8), (13, 8.2), pal["lip"])
+    if o > 0.3:
+        poly([(7, 1.3), (19, 1.3), (jx - 0.5, jy - 0.4)], pal["mouth"])
+        if o > 0.45:
+            poly([(9, 3), (13, 3.3), (jx - 0.5, jy - 2)], pal["gum"])
+        line((7, 1.8), (jx - 0.5, jy - 0.4), pal["lip"])
+        line((7, 1.2), (19, 1.2), pal["lip"])
+    else:
+        # mouth (nearly) closed: just a dark seam with a hint of red at the corner
+        line((7, 1.4), (19, 1.4), pal["shadow"])
+        cv.set(*P(7.5, 1.6), pal["lip"])
     # skull + narrow beak: raised brow crest, then a long straight slope to a needle tip
     poly([(-3, -1), (-1, -4.2), (5, -6.4), (9, -4.4), (23, 0.4), (21, 1.3), (7, 1.2), (1, 2)], pal["mid"])
     line((-1, -4), (5, -6.2), pal["light"])
     line((9, -4.2), (23, 0.4), pal["hi"])
     line((9, -3.2), (20.5, 0.3), pal["light"])
     line((-2, 0.7), (7, 0.8), pal["dark"])
-    # tiny teeth
-    cv.set(*P(17, 1.8), pal["fang"])
-    cv.set(*P(11, 1.8), pal["fang"])
+    # tiny teeth (only show when the mouth is open)
+    if o > 0.25:
+        cv.set(*P(17, 1.8), pal["fang"])
+        cv.set(*P(11, 1.8), pal["fang"])
     # long almond eye (like the references): black rim slanting down toward the snout,
     # iris at the back, pupil in front, and a thin trailing corner
     ex, ey = P(4.8, -3.4)
@@ -298,7 +307,7 @@ def wave(spine, phase, amp):
     return out
 
 
-def rayquaza(phase=0.0):
+def rayquaza(phase=0.0, open_=0.2):
     W, H = 150, 64
     cv = Canvas(W, H)
     # big S-curves, like the official figure
@@ -310,12 +319,12 @@ def rayquaza(phase=0.0):
     serpent(cv, spine, slim(2.6, 2.2), NORMAL, segments=22)
     arm(cv, 123, 39 + d[-3], NORMAL)
     arm(cv, 127, 38 + d[-2], NORMAL)
-    head(cv, 130, 23 + d[-1], NORMAL)
+    head(cv, 130, 23 + d[-1], NORMAL, open_=open_)
     cv.outline()
     return cv.img
 
 
-def mega_rayquaza(phase=0.0):
+def mega_rayquaza(phase=0.0, open_=0.2):
     W, H = 170, 78
     cv = Canvas(W, H)
     base = [(8, 32), (14, 43), (23, 53), (34, 59), (46, 58), (55, 50), (61, 39), (68, 29), (78, 23), (90, 24),
@@ -362,18 +371,27 @@ def mega_rayquaza(phase=0.0):
     serpent(cv, spine, slim(3.0, 2.5), MEGA, segments=26, mega=True, black=black)
     arm(cv, 138, 47 + d[-3], MEGA)
     arm(cv, 142, 46 + d[-2], MEGA)
-    head(cv, hx, hy, MEGA, mega=True)
+    head(cv, hx, hy, MEGA, mega=True, open_=open_)
     cv.outline()
     return cv.img
 
 
 def sheet(fn):
-    """Horizontal sprite sheet with FRAMES flying frames."""
-    frames = [fn(i / FRAMES) for i in range(FRAMES)]
-    w, h = frames[0].size
-    out = Image.new("RGBA", (w * FRAMES, h), (0, 0, 0, 0))
-    for i, f in enumerate(frames):
-        out.paste(f, (i * w, 0))
+    """Sprite sheet: row 0 = flying with the mouth mostly closed (it opens and closes
+    a little as it flies), row 1 = the same frames with the jaw wide open (attacking)."""
+    rows = []
+    for row in range(2):
+        frames = []
+        for i in range(FRAMES):
+            ph = i / FRAMES
+            o = 0.05 + 0.4 * (0.5 - 0.5 * math.cos(2 * math.pi * ph)) if row == 0 else 1.0
+            frames.append(fn(ph, open_=o))
+        rows.append(frames)
+    w, h = rows[0][0].size
+    out = Image.new("RGBA", (w * FRAMES, h * 2), (0, 0, 0, 0))
+    for r, frames in enumerate(rows):
+        for i, f in enumerate(frames):
+            out.paste(f, (i * w, r * h))
     return out
 
 
