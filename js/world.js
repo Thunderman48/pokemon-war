@@ -796,12 +796,13 @@ export class World {
     const proj = isB ? def.proj : st.proj;
     if (proj) {
       const d = Math.hypot(t.x - u.x, t.y - u.y);
-      const dur = Math.max(0.12, d / (proj === 'breath' ? 200 : 260));
+      const beam = proj === 'breath' || proj === 'megabreath';
+      const dur = beam ? Math.max(0.45, d / 220) : Math.max(0.12, d / 260);
       const lift = isFlying(u) ? 12 : 6;
       // long Pokémon (Rayquaza) breathe from their mouth, not their middle
       const mouth = !isB && FORMS[u.form].mouth;
       const x1 = mouth ? u.x + mouth[0] * u.face : u.x, y1 = mouth ? u.y + mouth[1] : u.y - lift;
-      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y });
+      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y, proj });
       this.fx.push({ k: 'p', x1: x1 | 0, y1: y1 | 0, x2: t.x | 0, y2: (t.y - (isFlying(t) ? 12 : 4)) | 0, d: dur, s: proj });
     } else {
       this.fx.push({ k: 'hit', x: ((u.x + t.x) / 2) | 0, y: ((u.y + t.y) / 2 - 4) | 0 });
@@ -818,7 +819,7 @@ export class World {
       const t = this.ents.get(p.t);
       if (p.splash) {
         const cx = t ? t.x : p.x, cy = t ? t.y : p.y, r = p.splash * TILE;
-        this.fx.push({ k: 'boom', x: cx | 0, y: cy | 0, r: r | 0 });
+        this.fx.push({ k: 'boom', x: cx | 0, y: cy | 0, r: r | 0, m: p.proj === 'megabreath' ? 1 : 0 });
         if (t && t.kind === 'building' && t.owner !== p.owner) this.damage(t, p.dmg, p.src, p.owner);
         this.nearUnits(cx, cy, r + 12, (e) => {
           if (e.owner === p.owner || !this.ents.has(e.id)) return;

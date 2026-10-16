@@ -214,31 +214,33 @@ def head(cv, hx, hy, pal, mega=False, k=0.72):
     poly([(0, -5), (4, -6.5), (tip_v[0] + 5, tip_v[1] + 2)], pal["shadow"])
     poly([(-1, 1), (2, 2.5), (tip_j[0] + 6, tip_j[1] + 3)], pal["shadow"])
     # lower jaw: thin, dropped wide open
-    poly([(2, 1.6), (7, 1.4), (15, 10), (13.5, 10.8), (2, 4)], pal["dark"])
+    poly([(2, 1.6), (7, 1.4), (13.5, 8.6), (12, 9.4), (2, 4)], pal["dark"])
     # mouth
-    poly([(7, 1.3), (21, 1.3), (14.5, 9.6)], pal["mouth"])
-    poly([(9, 3), (14, 3.4), (14.2, 7.6)], pal["gum"])
-    line((7, 1.2), (21, 1.2), pal["lip"])
-    line((7, 1.8), (14.5, 9.6), pal["lip"])
+    poly([(7, 1.3), (19, 1.3), (13, 8.2)], pal["mouth"])
+    poly([(9, 3), (13, 3.3), (13, 6.6)], pal["gum"])
+    line((7, 1.2), (19, 1.2), pal["lip"])
+    line((7, 1.8), (13, 8.2), pal["lip"])
     # skull + narrow beak: raised brow crest, then a long straight slope to a needle tip
-    poly([(-3, -1), (-1, -4.2), (5, -6.4), (9, -4.4), (25, 0.4), (22.5, 1.3), (7, 1.2), (1, 2)], pal["mid"])
+    poly([(-3, -1), (-1, -4.2), (5, -6.4), (9, -4.4), (23, 0.4), (21, 1.3), (7, 1.2), (1, 2)], pal["mid"])
     line((-1, -4), (5, -6.2), pal["light"])
-    line((9, -4.2), (25, 0.4), pal["hi"])
-    line((9, -3.2), (22, 0.3), pal["light"])
+    line((9, -4.2), (23, 0.4), pal["hi"])
+    line((9, -3.2), (20.5, 0.3), pal["light"])
     line((-2, 0.7), (7, 0.8), pal["dark"])
-    line((20, 1), (24, 0.9), pal["dark"])
-    # fangs
-    cv.set(*P(22, 1.8), pal["fang"])
-    cv.set(*P(12, 1.8), pal["fang"])
-    # angry almond eye: dark rim, yellow iris, slanting brow
-    ex, ey = P(8.5, -2.6)
+    # tiny teeth
+    cv.set(*P(17, 1.8), pal["fang"])
+    cv.set(*P(11, 1.8), pal["fang"])
+    # long almond eye (like the references): black rim slanting down toward the snout,
+    # iris at the back, pupil in front, and a thin trailing corner
+    ex, ey = P(4.8, -3.4)
     ex, ey = int(ex), int(ey)
-    for ox, oy in ((-1, -1), (0, -1), (1, -1), (2, 0), (-1, 0)):
-        cv.set(ex + ox, ey + oy, pal["pupil"] if not mega else pal["black"])
+    rim = pal["black"]
+    for ox, oy in ((0, -1), (1, -1), (2, -1), (3, 0), (4, 0), (5, 1), (-1, 0), (0, 1), (1, 1), (2, 1), (3, 1), (4, 1)):
+        cv.set(ex + ox, ey + oy, rim)
     cv.set(ex, ey, pal["eye"])
-    cv.set(ex + 1, ey, pal["eye"] if not mega else pal["pupil"])
+    cv.set(ex + 1, ey, pal["eye"])
+    cv.set(ex + 2, ey, pal["pupil"] if not mega else pal["pupil"])
     # yellow line from behind the eye back along the head toward the neck
-    line((3, -1.4), (-3, -0.2), pal["line"])
+    line((2, -0.8), (-3, 0.2), pal["line"])
     # near horns: long thin blades
     poly([(1, -4.8), (5, -6.4), tip_v, (tip_v[0] - 1.5, tip_v[1] + 2)], pal["mid"])
     line((4.5, -6.3), tip_v, pal["light"])
@@ -281,45 +283,66 @@ def slim(body, neck):
     return rad
 
 
-def rayquaza():
-    W, H = 150, 62
+FRAMES = 8  # flying animation frames
+
+
+def wave(spine, phase, amp):
+    """Send a ripple from the neck back to the tail: displace spine points
+    perpendicular-ish (vertically), strongest at the tail, nearly still at the head."""
+    n = len(spine)
+    out = []
+    for i, (x, y) in enumerate(spine):
+        w = i / (n - 1)  # 0 = tail, 1 = neck
+        env = 1 - 0.88 * w ** 1.5
+        out.append((x, y + amp * env * math.sin(2 * math.pi * (w * 1.6 + phase))))
+    return out
+
+
+def rayquaza(phase=0.0):
+    W, H = 150, 64
     cv = Canvas(W, H)
     # big S-curves, like the official figure
-    spine = [(8, 22), (14, 32), (22, 42), (32, 48), (43, 47), (51, 40), (56, 30), (62, 21), (71, 15), (82, 16),
-             (91, 23), (97, 33), (104, 42), (114, 46), (124, 41), (129, 32), (130, 24)]
-    tail_fin(cv, 8, 22, NORMAL)
+    base = [(8, 23), (14, 33), (22, 43), (32, 49), (43, 48), (51, 41), (56, 31), (62, 22), (71, 16), (82, 17),
+            (91, 24), (97, 34), (104, 43), (114, 47), (124, 42), (129, 33), (130, 25)]
+    spine = wave(base, phase, 2.4)
+    d = [p[1] - q[1] for p, q in zip(spine, base)]
+    tail_fin(cv, spine[0][0], spine[0][1], NORMAL)
     serpent(cv, spine, slim(2.6, 2.2), NORMAL, segments=22)
-    arm(cv, 123, 38, NORMAL)
-    arm(cv, 127, 37, NORMAL)
-    head(cv, 130, 22, NORMAL)
+    arm(cv, 123, 39 + d[-3], NORMAL)
+    arm(cv, 127, 38 + d[-2], NORMAL)
+    head(cv, 130, 23 + d[-1], NORMAL)
     cv.outline()
     return cv.img
 
 
-def mega_rayquaza():
-    W, H = 170, 74
+def mega_rayquaza(phase=0.0):
+    W, H = 170, 78
     cv = Canvas(W, H)
-    spine = [(8, 30), (14, 41), (23, 51), (34, 57), (46, 56), (55, 48), (61, 37), (68, 27), (78, 21), (90, 22),
-             (100, 30), (107, 41), (115, 51), (126, 55), (137, 49), (143, 39), (145, 31)]
+    base = [(8, 32), (14, 43), (23, 53), (34, 59), (46, 58), (55, 50), (61, 39), (68, 29), (78, 23), (90, 24),
+            (100, 32), (107, 43), (115, 53), (126, 57), (137, 51), (143, 41), (145, 33)]
+    spine = wave(base, phase, 2.8)
+    d = [p[1] - q[1] for p, q in zip(spine, base)]
 
     def black(s, v):
         k = int(s * 26)
         return (v < -0.2 and k % 2 == 1) or (s > 0.92 and v < 0)
-    tail_fin(cv, 8, 30, MEGA, mega=True)
-    hx, hy = 145, 29
+    tail_fin(cv, spine[0][0], spine[0][1], MEGA, mega=True)
+    hx, hy = 145, 31 + d[-1]
     # draw the head first on a scratch canvas just to get the horn tips
     tips = head(Canvas(W, H), hx, hy, MEGA, mega=True)
     gold, glow = (255, 186, 48), (255, 236, 150)
+    ph = 2 * math.pi * phase
     # long golden filaments from the jaw horn, rippling back over the body
     jx, jy = tips["jaw"]
     pts = []
     for i in range(200):
         t = i / 199
-        pts.append((jx - t * 70, jy + 4 * t + math.sin(t * math.pi * 3) * 3.5))
+        pts.append((jx - t * 70, jy + 4 * t + math.sin(t * math.pi * 3 + ph) * 3.5 * t + math.sin(t * math.pi * 3) * 1.5))
     for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
         cv.line(x0, y0, x1, y1, gold)
-    for x, y in pts[::8]:
-        cv.set(x, y - 1, glow)
+    for i, (x, y) in enumerate(pts[::8]):
+        if (i + int(phase * FRAMES)) % 3 == 0:
+            cv.set(x, y - 1, glow)
     ex, ey = pts[-1]
     cv.poly([(ex + 1, ey), (ex - 4, ey - 4), (ex - 3, ey), (ex - 4, ey + 4)], MEGA["mid"])
     # filament from the swept-back horn ending in a spiked ring
@@ -327,20 +350,31 @@ def mega_rayquaza():
     pts2 = []
     for i in range(80):
         t = i / 79
-        pts2.append((bx - t * 22, by + math.sin(t * math.pi) * -2 + t * 3))
+        pts2.append((bx - t * 22, by - math.sin(t * math.pi) * 2 + t * 3 + math.sin(t * math.pi * 2 + ph) * 1.5 * t))
     for (x0, y0), (x1, y1) in zip(pts2, pts2[1:]):
         cv.line(x0, y0, x1, y1, gold)
     rx, ry = pts2[-1]
     for a in range(0, 360, 45):
-        cv.set(rx + math.cos(math.radians(a)) * 2.2, ry + math.sin(math.radians(a)) * 2.2, gold)
-        cv.set(rx + math.cos(math.radians(a)) * 3.4, ry + math.sin(math.radians(a)) * 3.4, glow)
+        a2 = a + phase * 45
+        cv.set(rx + math.cos(math.radians(a2)) * 2.2, ry + math.sin(math.radians(a2)) * 2.2, gold)
+        cv.set(rx + math.cos(math.radians(a2)) * 3.4, ry + math.sin(math.radians(a2)) * 3.4, glow)
     cv.set(rx, ry, glow)
     serpent(cv, spine, slim(3.0, 2.5), MEGA, segments=26, mega=True, black=black)
-    arm(cv, 138, 45, MEGA)
-    arm(cv, 142, 44, MEGA)
+    arm(cv, 138, 47 + d[-3], MEGA)
+    arm(cv, 142, 46 + d[-2], MEGA)
     head(cv, hx, hy, MEGA, mega=True)
     cv.outline()
     return cv.img
+
+
+def sheet(fn):
+    """Horizontal sprite sheet with FRAMES flying frames."""
+    frames = [fn(i / FRAMES) for i in range(FRAMES)]
+    w, h = frames[0].size
+    out = Image.new("RGBA", (w * FRAMES, h), (0, 0, 0, 0))
+    for i, f in enumerate(frames):
+        out.paste(f, (i * w, 0))
+    return out
 
 
 if __name__ == "__main__":
@@ -348,3 +382,5 @@ if __name__ == "__main__":
     for name, fn in (("rayquaza", rayquaza), ("megarayquaza", mega_rayquaza)):
         im = fn()
         im.resize((im.width * 6, im.height * 6), Image.NEAREST).save(f"{sys.argv[1]}/{name}_big.png")
+        sh = sheet(fn)
+        sh.save(f"{sys.argv[1]}/{name}_anim.png")

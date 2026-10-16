@@ -193,7 +193,8 @@ export class Game {
       const s = r.toScreen(x, y);
       if (s.x < 0 || s.y < 0 || s.x > r.vw || s.y > r.vh) continue;
       if (!this.world.vis[this.pid][Math.floor(y / TILE) * this.world.w + Math.floor(x / TILE)]) continue;
-      if (f.k === 'p') sfx('shot');
+      if (f.k === 'p') sfx(f.s === 'breath' || f.s === 'megabreath' ? 'breath' : 'shot');
+      else if (f.k === 'boom') { sfx('boom'); r.shake(performance.now(), f.m ? 5 : 3.5); }
       else if (f.k === 'hit') sfx('hit');
       else if (f.k === 'die') sfx('die');
     }

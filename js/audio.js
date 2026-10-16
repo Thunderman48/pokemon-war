@@ -43,6 +43,8 @@ export function sfx(name) {
     case 'shot': tone(700, 0.06, 'triangle', 0.025, 0, -400); break;
     case 'hit': tone(160, 0.06, 'square', 0.025, 0, -80); break;
     case 'die': tone(300, 0.2, 'sawtooth', 0.03, 0, -250); break;
+    case 'breath': tone(520, 0.35, 'sawtooth', 0.035, 0, -420); tone(260, 0.4, 'square', 0.025, 0.05, -200); break;
+    case 'boom': tone(110, 0.45, 'sawtooth', 0.06, 0, -80); tone(70, 0.6, 'square', 0.05, 0.02, -45); tone(900, 0.12, 'triangle', 0.03, 0, -700); break;
     case 'build': [523, 659, 784].forEach((f, i) => tone(f, 0.1, 'square', 0.03, i * 0.08)); break;
     case 'train': tone(523, 0.06, 'square', 0.03); tone(784, 0.08, 'square', 0.03, 0.06); break;
     case 'error': tone(180, 0.12, 'square', 0.04); break;

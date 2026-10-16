@@ -115,6 +115,7 @@ export class Renderer {
     }
   }
   ping(x, y, color, now) { this.pings.push({ x, y, color, start: now }); }
+  shake(now, mag) { this.shakeEnd = now + 350; this.shakeMag = Math.max(mag, this.shakeEnd > now ? this.shakeMag || 0 : 0); }
 
   spriteFor(e) {
     if (e.kind === 'unit') return this.A.units[e.form];
@@ -140,7 +141,13 @@ export class Renderer {
     ctx.fillStyle = '#1d3b2a';
     ctx.fillRect(0, 0, this.c.width, this.c.height);
     ctx.imageSmoothingEnabled = false;
-    ctx.setTransform(z * dpr, 0, 0, z * dpr, -cam.x * z * dpr, -cam.y * z * dpr);
+    // screen shake (big impacts)
+    let shx = 0, shy = 0;
+    if (this.shakeEnd && now < this.shakeEnd) {
+      const k = (this.shakeEnd - now) / 350 * this.shakeMag;
+      shx = (Math.random() - 0.5) * 2 * k; shy = (Math.random() - 0.5) * 2 * k;
+    }
+    ctx.setTransform(z * dpr, 0, 0, z * dpr, (-cam.x * z + shx) * dpr, (-cam.y * z + shy) * dpr);
     // round camera to device pixels to avoid shimmering
     const sx = Math.max(0, Math.floor(cam.x)), sy = Math.max(0, Math.floor(cam.y));
     const sw = Math.min(this.terrain.width - sx, Math.ceil(this.vw / z) + 2);
@@ -266,7 +273,13 @@ export class Renderer {
     ctx.save();
     if (e.face < 0) { ctx.translate(dx * 2 + w, 0); ctx.scale(-1, 1); }
     if (e.sleep > 0) ctx.globalAlpha = 0.75;
-    ctx.drawImage(img, dx, dy, w, h);
+    const anim = this.A.anim[e.form];
+    const frame = anim ? Math.floor(now / 95 + e.id * 3) % anim.n : 0;
+    const blit = () => {
+      if (anim) { const fw = anim.img.width / anim.n; ctx.drawImage(anim.img, frame * fw, 0, fw, anim.img.height, dx, dy, w, h); }
+      else ctx.drawImage(img, dx, dy, w, h);
+    };
+    blit();
     ctx.globalAlpha = 1;
     const ft = this.evoFlash.get(e.id);
     if (ft !== undefined) {
@@ -275,7 +288,7 @@ export class Renderer {
       else {
         ctx.globalAlpha = (Math.sin(t * Math.PI * 8) * 0.5 + 0.5) * (1 - t);
         ctx.globalCompositeOperation = 'lighter';
-        ctx.drawImage(img, dx, dy, w, h); ctx.drawImage(img, dx, dy, w, h);
+        blit(); blit();
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
       }
@@ -378,7 +391,7 @@ export class Renderer {
       const f = this.fx[i];
       const age = (now - f.start) / 1000;
       const life = f.k === 'p' ? f.d : f.k === 'evo' ? 1.4 : f.k === 'die' ? (f.b ? 0.9 : 0.5) : f.k === 'heal' ? 0.7 :
-        f.k === 'zap' ? 0.5 : f.k === 'bolt' ? 0.6 : f.k === 'healp' ? 0.8 : f.k === 'sleep' ? 1.2 : f.k === 'boom' ? 0.5 : 0.3;
+        f.k === 'zap' ? 0.5 : f.k === 'bolt' ? 0.6 : f.k === 'healp' ? 0.8 : f.k === 'sleep' ? 1.2 : f.k === 'boom' ? 1.0 : 0.3;
       if (age > life) { this.fx.splice(i, 1); continue; }
       const t = age / life;
       const fxX = f.k === 'p' ? f.x2 : f.x, fxY = f.k === 'p' ? f.y2 : f.y;
@@ -456,10 +469,7 @@ export class Renderer {
           ctx.beginPath(); ctx.arc(f.x + Math.cos(a) * d, f.y + Math.sin(a) * d * 0.7 - t * 8, 2.5 + (j % 3), 0, 7); ctx.fill();
         }
       } else if (f.k === 'boom') {
-        ctx.fillStyle = `rgba(140,255,150,${0.5 * (1 - t)})`;
-        ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r * (0.4 + t * 0.6), f.r * 0.7 * (0.4 + t * 0.6), 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = `rgba(255,240,120,${1 - t})`; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r * (0.4 + t * 0.6), f.r * 0.7 * (0.4 + t * 0.6), 0, 0, Math.PI * 2); ctx.stroke();
+        this.dragonBoom(f, t, now);
       } else if (f.k === 'done') {
         ctx.strokeStyle = `rgba(255,230,120,${1 - t})`; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(f.x, f.y, 20 + t * 14, (20 + t * 14) * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
@@ -500,19 +510,107 @@ export class Renderer {
     } else if (kind === 'gust') {
       ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(x, y, 3, now / 60, now / 60 + 4); ctx.stroke();
-    } else if (kind === 'breath') {
-      const sx = f.x1 + (f.x2 - f.x1) * Math.max(0, t - 0.4), sy = f.y1 + (f.y2 - f.y1) * Math.max(0, t - 0.4);
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = 'rgba(90,230,140,0.6)'; ctx.lineWidth = 7;
-      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(x, y); ctx.stroke();
-      ctx.strokeStyle = '#fff59a'; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(x, y); ctx.stroke();
-      ctx.lineCap = 'butt';
+    } else if (kind === 'breath' || kind === 'megabreath') {
+      this.dragonBeam(f, t, now, kind === 'megabreath');
     } else {
       ctx.fillStyle = '#f03c3c'; ctx.beginPath(); ctx.arc(x, y, 2.5, Math.PI, 0); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI); ctx.fill();
       ctx.fillStyle = '#222'; ctx.fillRect(x - 2.5, y - 0.3, 5, 0.6);
     }
+  }
+
+  // Dragon Breath: charge orb at the mouth, then a thick layered beam that races to the target
+  dragonBeam(f, t, now, mega) {
+    const ctx = this.ctx;
+    const charge = 0.28;
+    const outer = mega ? 'rgba(255,170,40,0.38)' : 'rgba(60,220,120,0.38)';
+    const mid = mega ? 'rgba(255,220,90,0.9)' : 'rgba(120,255,170,0.9)';
+    const core = mega ? '#fffbe0' : '#f4ffe0';
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    // charge-up orb with spiralling sparks
+    const cr = (t < charge ? t / charge : 1) * (mega ? 6 : 5) * (1 + Math.sin(now / 30) * 0.15);
+    ctx.fillStyle = outer; ctx.beginPath(); ctx.arc(f.x1, f.y1, cr * 1.8, 0, 7); ctx.fill();
+    ctx.fillStyle = mid; ctx.beginPath(); ctx.arc(f.x1, f.y1, cr, 0, 7); ctx.fill();
+    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(f.x1, f.y1, cr * 0.45, 0, 7); ctx.fill();
+    if (t < charge) {
+      for (let j = 0; j < 6; j++) {
+        const a = j * 1.047 + now / 90, d = 14 * (1 - t / charge) + 2;
+        ctx.fillStyle = mid;
+        ctx.fillRect(f.x1 + Math.cos(a) * d - 1, f.y1 + Math.sin(a) * d - 1, 2, 2);
+      }
+      ctx.restore();
+      return;
+    }
+    // beam: tip races from the mouth to the target, tail stays at the mouth
+    const k = Math.min(1, (t - charge) / (1 - charge) * 1.25);
+    const hx = f.x1 + (f.x2 - f.x1) * k, hy = f.y1 + (f.y2 - f.y1) * k;
+    const pulse = 1 + Math.sin(now / 25) * 0.18;
+    ctx.lineCap = 'round';
+    for (const [col, w] of [[outer, (mega ? 14 : 11) * pulse], [mid, (mega ? 7 : 5.5) * pulse], [core, 2.4]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(f.x1, f.y1); ctx.lineTo(hx, hy); ctx.stroke();
+    }
+    // crackling sparks along the beam
+    const dx = hx - f.x1, dy = hy - f.y1, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+    for (let j = 0; j < 14; j++) {
+      const u = ((j * 0.137 + now / 400) % 1);
+      const off = Math.sin(j * 12.9 + now / 40) * (mega ? 8 : 6);
+      ctx.fillStyle = j % 3 ? mid : core;
+      ctx.fillRect(f.x1 + dx * u + nx * off - 1, f.y1 + dy * u + ny * off - 1, 2, 2);
+    }
+    // bright head of the beam
+    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(hx, hy, (mega ? 5 : 4) * pulse, 0, 7); ctx.fill();
+    ctx.lineCap = 'butt';
+    ctx.restore();
+  }
+
+  // Dragon Breath impact: flash, scorch, fireball, shockwaves, debris, rising embers
+  dragonBoom(f, t, now) {
+    const ctx = this.ctx;
+    const r = (f.r || 22) * (f.m ? 1.7 : 1.5);
+    const g1 = f.m ? [255, 176, 40] : [80, 230, 130];
+    const g2 = f.m ? [255, 236, 140] : [220, 255, 160];
+    const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${Math.max(0, a)})`;
+    // scorch mark on the ground
+    ctx.fillStyle = `rgba(20,30,20,${0.35 * (1 - t)})`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y + 2, r * 0.9, r * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    // white flash
+    if (t < 0.15) {
+      ctx.fillStyle = `rgba(255,255,240,${0.9 * (1 - t / 0.15)})`;
+      ctx.beginPath(); ctx.ellipse(f.x, f.y - 4, r * 1.3, r * 1.0, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    // fireball
+    const fb = Math.max(0, 1 - t * 1.6);
+    ctx.fillStyle = rgba(g1, 0.55 * fb);
+    ctx.beginPath(); ctx.ellipse(f.x, f.y - 6 - t * 10, r * (0.5 + t * 0.5), r * (0.45 + t * 0.4), 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = rgba(g2, 0.8 * fb);
+    ctx.beginPath(); ctx.ellipse(f.x, f.y - 6 - t * 10, r * 0.3 * (1 + t), r * 0.28 * (1 + t), 0, 0, Math.PI * 2); ctx.fill();
+    // two shockwave rings
+    for (const [sp, w, c] of [[1.6, 3, g2], [1.1, 2, g1]]) {
+      const rr = r * (0.2 + t * sp);
+      ctx.strokeStyle = rgba(c, 1 - t); ctx.lineWidth = w * (1 - t) + 0.5;
+      ctx.beginPath(); ctx.ellipse(f.x, f.y, rr, rr * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    // debris streaks flying outward
+    for (let j = 0; j < 16; j++) {
+      const a = j * 0.3927 + f.x * 0.01;
+      const d0 = r * (0.2 + t * 1.5), d1 = d0 + 5 * (1 - t);
+      ctx.strokeStyle = rgba(j % 2 ? g1 : g2, 1 - t); ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(f.x + Math.cos(a) * d0, f.y + Math.sin(a) * d0 * 0.6 - t * 6);
+      ctx.lineTo(f.x + Math.cos(a) * d1, f.y + Math.sin(a) * d1 * 0.6 - t * 6);
+      ctx.stroke();
+    }
+    // embers drifting up
+    for (let j = 0; j < 10; j++) {
+      const ex = f.x + Math.sin(j * 7.3) * r * 0.8, ey = f.y - t * (20 + (j % 4) * 6) - 4;
+      ctx.fillStyle = rgba(j % 2 ? g2 : g1, 1 - t);
+      ctx.fillRect(ex - 1, ey - 1, 2, 2);
+    }
+    ctx.restore();
   }
 
   drawFog() {

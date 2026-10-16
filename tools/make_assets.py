@@ -782,6 +782,7 @@ def main():
     for k, fn in (("rayquaza", rq.rayquaza), ("megarayquaza", rq.mega_rayquaza)):
         imgs[k] = fn()
         save(imgs[k], "units", k + ".png")
+        save(rq.sheet(fn), "units", k + "_anim.png")  # flying animation frames
     for k in ("berry", "crystal"):
         imgs[k] = sprite_image(SPRITES[k])
         save(imgs[k], "res", k + ".png")
