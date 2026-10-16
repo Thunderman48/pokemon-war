@@ -798,8 +798,11 @@ export class World {
       const d = Math.hypot(t.x - u.x, t.y - u.y);
       const dur = Math.max(0.12, d / (proj === 'breath' ? 200 : 260));
       const lift = isFlying(u) ? 12 : 6;
+      // long Pokémon (Rayquaza) breathe from their mouth, not their middle
+      const mouth = !isB && FORMS[u.form].mouth;
+      const x1 = mouth ? u.x + mouth[0] * u.face : u.x, y1 = mouth ? u.y + mouth[1] : u.y - lift;
       this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y });
-      this.fx.push({ k: 'p', x1: u.x | 0, y1: (u.y - lift) | 0, x2: t.x | 0, y2: (t.y - (isFlying(t) ? 12 : 4)) | 0, d: dur, s: proj });
+      this.fx.push({ k: 'p', x1: x1 | 0, y1: y1 | 0, x2: t.x | 0, y2: (t.y - (isFlying(t) ? 12 : 4)) | 0, d: dur, s: proj });
     } else {
       this.fx.push({ k: 'hit', x: ((u.x + t.x) / 2) | 0, y: ((u.y + t.y) / 2 - 4) | 0 });
       this.damage(t, dmg, u.id, u.owner);
