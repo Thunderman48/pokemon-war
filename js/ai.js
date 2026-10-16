@@ -218,7 +218,10 @@ export class AI {
 
   enemyTarget() {
     let best = null, bd = Infinity;
-    for (const b of this.w.buildingsOf(this.enemy)) {
+    // go for the Pokémon Centers: destroying them all wins the game
+    const all = this.w.buildingsOf(this.enemy);
+    const centers = all.filter((b) => b.type === 'center');
+    for (const b of centers.length ? centers : all) {
       const d = Math.hypot(b.x - this.home.x, b.y - this.home.y);
       if (d < bd) { bd = d; best = b; }
     }

@@ -1,7 +1,7 @@
 # Pokémon War
 
 A real-time strategy game built for phones, playable in the browser and hosted on GitHub Pages.
-Gather berries and crystals, build up your base, train Pokémon, evolve them in battle, and destroy every enemy building.
+Gather berries and crystals, build up your base, train Pokémon, evolve them in battle, and destroy every enemy Pokémon Center (their bases).
 
 **Play:** https://thunderman48.github.io/pokemon-war/ (after GitHub Pages is enabled; see below)
 

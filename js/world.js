@@ -891,7 +891,11 @@ export class World {
       this.remove(t);
       if (p) p.stats.lost++;
       if (srcOwner >= 0 && this.players[srcOwner]) this.players[srcOwner].stats.killed++;
-      if (t.kind === 'building') { this.recount(); this.notify(t.owner, `${BUILDINGS[t.type].name} destroyed!`, 'alert', t.x, t.y); }
+      if (t.kind === 'building') {
+        this.recount();
+        this.notify(t.owner, `${BUILDINGS[t.type].name} destroyed!`, 'alert', t.x, t.y);
+        if (t.type === 'center') this.checkWin();
+      }
     }
   }
 
@@ -1081,10 +1085,11 @@ export class World {
     });
   }
 
+  // A player is defeated as soon as all of their Pokémon Centers (their bases) are destroyed.
   checkWin(force) {
     this.players.forEach((p, pid) => {
       if (!p.alive) return;
-      if (!this.buildingsOf(pid).length) p.alive = false;
+      if (!this.buildingsOf(pid).some((b) => b.type === 'center')) p.alive = false;
     });
     const alive = this.players.filter((p) => p.alive);
     if (alive.length <= 1 && this.winner < 0 && (force || alive.length < this.players.length)) {

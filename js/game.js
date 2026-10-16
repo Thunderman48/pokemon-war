@@ -173,7 +173,7 @@ export class Game {
         `Pokémon trained ${p.stats.trained}<br>Enemies defeated ${p.stats.killed}<br>` +
         `Losses ${p.stats.lost}<br>Resources gathered ${p.stats.gathered}`;
       $('s-over').hidden = false;
-    }, 1200);
+    }, 600);
   }
 
   handleNotes(list) {

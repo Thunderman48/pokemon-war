@@ -114,5 +114,12 @@ g.applySnapshot(JSON.parse(JSON.stringify(w.snapshot())), 1);
 const gr = g.ents.get(ray.id);
 ok(gr && gr.form === 'megarayquaza' && g.players[0].research.megastone === 1, 'snapshot keeps forms and research');
 
+// destroying the last Pokémon Center ends the game, even if other buildings remain
+const w2 = new World({ seed: 5, players: [{}, {}] });
+const c1 = w2.buildingsOf(1)[0];
+w2.addBuilding('mart', 1, c1.tx + 5, c1.ty, true);
+w2.damage(c1, 99999, 0, 0);
+ok(w2.winner === 0, `winner decided right when the last Center fell (winner ${w2.winner})`);
+
 console.log(fails ? `${fails} FAILED` : 'ALL PASSED');
 process.exit(fails ? 1 : 0);

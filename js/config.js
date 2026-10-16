@@ -87,7 +87,7 @@ export const UNITS = {
   },
   rayquaza: {
     name: 'Rayquaza', hp: 1400, dmg: 34, cd: 1.5, range: 4, speed: 2.6, sight: 10,
-    cost: { b: 400, c: 500 }, time: 60, pop: 10, radius: 14, proj: 'breath', splash: 1.4, siege: 1.5,
+    cost: { b: 400, c: 500 }, time: 60, pop: 10, radius: 11, proj: 'breath', splash: 1.4, siege: 1.5,
     flying: true, limit: 1,
     desc: 'Legendary sky dragon. Dragon Breath hits an area. Only one allowed.',
   },
