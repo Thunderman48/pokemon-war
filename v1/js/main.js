@@ -120,6 +120,16 @@ async function init() {
     } catch (e) { /* not supported (e.g. iPhone): use Add to Home Screen */ }
   });
 
+  // iOS/iPadOS fullscreen overlays the top of the page: leave room for it
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const onFs = () => {
+    const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    document.documentElement.classList.toggle('fs-ios', fs && isIOS);
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+  };
+  document.addEventListener('fullscreenchange', onFs);
+  document.addEventListener('webkitfullscreenchange', onFs);
+
   // pause menu
   $('btn-menu').addEventListener('click', () => {
     if (!game) return;

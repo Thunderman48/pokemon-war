@@ -14,7 +14,11 @@
   --safeL: env(safe-area-inset-left, 0px);
   --safeR: env(safe-area-inset-right, 0px);
   --safeB: env(safe-area-inset-bottom, 0px);
+  --safeT: env(safe-area-inset-top, 0px);
 }
+
+/* iPhone/iPad Safari fullscreen draws its own controls over the top edge */
+html.fs-ios { --safeT: max(env(safe-area-inset-top, 0px), 32px); }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body {
@@ -32,8 +36,8 @@ button { font-family: inherit; color: inherit; touch-action: manipulation; }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 
 #topbar {
-  position: absolute; top: 0; left: 0; right: 0; height: 36px;
-  display: flex; align-items: center; gap: 14px; padding: 0 calc(8px + var(--safeR)) 0 calc(10px + var(--safeL));
+  position: absolute; top: 0; left: 0; right: 0; height: calc(36px + var(--safeT));
+  display: flex; align-items: center; gap: 14px; padding: var(--safeT) calc(8px + var(--safeR)) 0 calc(10px + var(--safeL));
   background: linear-gradient(#1b1730ee, #1b173099); border-bottom: 2px solid var(--edge);
   pointer-events: none;
 }
@@ -47,7 +51,7 @@ button { font-family: inherit; color: inherit; touch-action: manipulation; }
 }
 
 #side {
-  position: absolute; left: calc(6px + var(--safeL)); top: 44px; display: flex; flex-direction: column; gap: 6px;
+  position: absolute; left: calc(6px + var(--safeL)); top: calc(44px + var(--safeT)); display: flex; flex-direction: column; gap: 6px;
 }
 .side-btn {
   position: relative; width: 58px; height: 40px; font-size: 8px; border: 2px solid var(--edge); border-radius: 6px;
@@ -61,7 +65,7 @@ button { font-family: inherit; color: inherit; touch-action: manipulation; }
 .badge:empty { display: none; }
 
 #toasts {
-  position: absolute; top: 44px; left: 50%; transform: translateX(-50%); width: min(92vw, 520px);
+  position: absolute; top: calc(44px + var(--safeT)); left: 50%; transform: translateX(-50%); width: min(92vw, 520px);
   display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none;
 }
 .toast {
@@ -140,7 +144,7 @@ button { font-family: inherit; color: inherit; touch-action: manipulation; }
 /* ------------------------------------------------------------ screens */
 .screen {
   position: fixed; inset: 0; overflow-y: auto; touch-action: pan-y;
-  padding: max(16px, env(safe-area-inset-top)) calc(16px + var(--safeR)) calc(16px + var(--safeB)) calc(16px + var(--safeL));
+  padding: max(16px, var(--safeT)) calc(16px + var(--safeR)) calc(16px + var(--safeB)) calc(16px + var(--safeL));
   display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 14px;
   background: radial-gradient(ellipse at 50% 30%, #3a3170, #1b1730 70%);
 }
