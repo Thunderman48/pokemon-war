@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1b1730">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Pokémon War — a free, non-profit fan-made real-time strategy game for phones.">
+  <title>Pokémon War</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/icon.png">
+  <link rel="apple-touch-icon" href="assets/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="game" hidden>
+    <canvas id="view"></canvas>
+    <div id="topbar">
+      <div class="res" title="Berries"><img src="assets/res/berry.png" alt=""><span id="r-b">0</span></div>
+      <div class="res" title="Crystals"><img src="assets/res/crystal.png" alt=""><span id="r-c">0</span></div>
+      <div class="res" title="Supply"><img src="assets/units/machop.png" alt=""><span id="r-p">0/0</span></div>
+      <div id="clock">0:00</div>
+      <button id="btn-menu" class="icon-btn" aria-label="Menu">II</button>
+    </div>
+    <div id="side">
+      <button id="btn-army" class="side-btn">ARMY</button>
+      <button id="btn-idle" class="side-btn">IDLE<span id="idle-count" class="badge"></span></button>
+      <button id="btn-base" class="side-btn">BASE</button>
+      <button id="btn-box" class="side-btn">BOX</button>
+    </div>
+    <div id="toasts"></div>
+    <div id="place-bar" hidden>
+      <span id="place-hint">Tap to position</span>
+      <button id="place-ok" class="btn good">BUILD</button>
+      <button id="place-cancel" class="btn">CANCEL</button>
+    </div>
+    <div id="panel">
+      <canvas id="minimap"></canvas>
+      <div id="info"></div>
+      <div id="cmds"></div>
+    </div>
+  </div>
+
+  <div id="screens">
+    <section id="s-title" class="screen">
+      <div class="logo"><span class="l1">POKéMON</span><span class="l2">WAR</span></div>
+      <div class="hero" id="hero"></div>
+      <div class="menu">
+        <button class="btn big" data-go="s-diff">VS COMPUTER</button>
+        <button class="btn big" data-go="s-online">ONLINE 1V1</button>
+        <button class="btn" data-go="s-help">HOW TO PLAY</button>
+        <button class="btn" id="btn-fullscreen">FULLSCREEN</button>
+      </div>
+      <p class="disclaimer">Free, non-profit fan game. Not affiliated with or endorsed by Nintendo, Game Freak, Creatures Inc. or The Pokémon Company. Pokémon and character names are trademarks of their respective owners.</p>
+    </section>
+
+    <section id="s-diff" class="screen" hidden>
+      <h2>CHOOSE DIFFICULTY</h2>
+      <div class="menu">
+        <button class="btn big" data-diff="easy">EASY</button>
+        <button class="btn big" data-diff="normal">NORMAL</button>
+        <button class="btn big" data-diff="hard">HARD</button>
+        <button class="btn" data-go="s-title">BACK</button>
+      </div>
+    </section>
+
+    <section id="s-online" class="screen" hidden>
+      <h2>ONLINE 1V1</h2>
+      <div class="menu">
+        <button class="btn big" id="btn-host">HOST GAME</button>
+        <div class="join-row">
+          <input id="join-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button class="btn big" id="btn-join">JOIN</button>
+        </div>
+        <p id="online-status" class="status"></p>
+        <button class="btn" id="btn-online-back">BACK</button>
+      </div>
+      <p class="hint">Host a game and send the 5-letter code to a friend. Both players need an internet connection. The host's device runs the match, so keep the game open in front.</p>
+    </section>
+
+    <section id="s-help" class="screen" hidden>
+      <h2>HOW TO PLAY</h2>
+      <div class="help">
+        <p><b>Goal:</b> destroy every enemy building.</p>
+        <p><b>Economy:</b> Machop workers gather <img src="assets/res/berry.png" alt="">berries and <img src="assets/res/crystal.png" alt="">crystals. Build a Poké Mart for more supply, a Gym to train battle Pokémon, and a Lab for Pikachu, Snorlax, upgrades and final evolutions.</p>
+        <p><b>Types:</b> Fire &gt; Grass &gt; Water &gt; Fire. Electric &gt; Water. Fighting &gt; Normal. Super-effective hits deal 1.5× damage.</p>
+        <p><b>Evolution:</b> Pokémon gain XP by dealing damage and evolve, getting stronger. Final evolutions need a Lab.</p>
+        <p><b>Touch controls:</b></p>
+        <ul>
+          <li>Tap a Pokémon or building to select it. Double-tap to select all of that kind on screen.</li>
+          <li>With Pokémon selected, tap the ground to move (they fight what they meet), tap an enemy to attack, or tap a berry bush/crystal to gather.</li>
+          <li>Drag to scroll. Pinch to zoom. Tap the minimap to jump.</li>
+          <li>Press and hold, then drag, to box-select (or use the BOX button).</li>
+          <li>ARMY selects all fighters. IDLE selects an idle worker. BASE jumps home.</li>
+          <li>With a building selected, tap the ground to set its rally point.</li>
+        </ul>
+        <p><b>Mouse:</b> left-click selects, drag box-selects, right-click commands, wheel zooms, WASD/arrows scroll.</p>
+      </div>
+      <div class="menu"><button class="btn" data-go="s-title">BACK</button></div>
+    </section>
+
+    <section id="s-pause" class="screen overlay" hidden>
+      <h2>PAUSED</h2>
+      <div class="menu">
+        <button class="btn big" id="btn-resume">RESUME</button>
+        <button class="btn" id="btn-sound">SOUND: ON</button>
+        <button class="btn" id="btn-help2">HOW TO PLAY</button>
+        <button class="btn danger" id="btn-quit">SURRENDER</button>
+      </div>
+    </section>
+
+    <section id="s-over" class="screen overlay" hidden>
+      <h2 id="over-title">VICTORY!</h2>
+      <div id="over-stats" class="stats"></div>
+      <div class="menu"><button class="btn big" id="btn-again">MAIN MENU</button></div>
+    </section>
+
+    <div id="rotate-hint" hidden>
+      <div>Turn your phone sideways for the best view</div>
+      <button class="btn" id="btn-rotate-ok">OK</button>
+    </div>
+    <div id="loading">LOADING…</div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

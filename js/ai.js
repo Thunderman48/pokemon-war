@@ -1,0 +1,223 @@
+// Computer opponent. Plays through world.issue() just like a human would.
+import { UNITS, BUILDINGS, TILE, DIFFICULTY } from './config.js';
+
+const COUNTER = { fire: 'squirtle', water: 'bulbasaur', grass: 'charmander', electric: 'bulbasaur', normal: 'charmander', fighting: 'charmander' };
+
+export class AI {
+  constructor(world, pid, difficulty = 'normal') {
+    this.w = world;
+    this.pid = pid;
+    this.key = difficulty;
+    this.d = DIFFICULTY[difficulty] || DIFFICULTY.normal;
+    world.players[pid].gatherMult = this.d.gather;
+    world.players[pid].noFog = true;
+    this.timer = 1;
+    this.wave = this.d.firstWave;
+    this.attacking = false;
+    this.enemy = 1 - pid;
+    const s = world.map.starts[pid];
+    this.homeT = { x: s.tx + 1, y: s.ty + 1 };
+    this.home = { x: this.homeT.x * TILE + 8, y: this.homeT.y * TILE + 8 };
+    const ex = { x: 10, y: world.h - 14 };
+    this.expansion = pid === 0 ? ex : { x: world.w - 1 - ex.x, y: world.h - 1 - ex.y };
+    this.seed = pid * 7919 + 13;
+  }
+
+  rand() { this.seed = (this.seed * 16807) % 2147483647; return this.seed / 2147483647; }
+
+  update(dt) {
+    this.w.notes[this.pid].length = 0;
+    this.timer -= dt;
+    if (this.timer > 0) return;
+    this.timer = this.d.think;
+    this.think();
+  }
+
+  think() {
+    const W = this.w, pid = this.pid, me = W.players[pid];
+    if (!me.alive || W.winner >= 0) return;
+    const units = W.unitsOf(pid), blds = W.buildingsOf(pid);
+    const workers = units.filter((u) => UNITS[u.type].worker);
+    const army = units.filter((u) => !UNITS[u.type].worker);
+    const count = (t, builtOnly) => blds.filter((b) => b.type === t && (!builtOnly || b.built)).length;
+    const queued = (t) => blds.reduce((s, b) => s + b.queue.filter((q) => q.u === t).length, 0);
+    const centers = blds.filter((b) => b.type === 'center' && b.built);
+    this.built = false;
+
+    // --- economy
+    if (centers.length && workers.length + queued('machop') < this.d.workers * Math.min(2, centers.length)) {
+      const c = centers.find((x) => x.queue.length < 2);
+      if (c && W.canAfford(pid, UNITS.machop.cost) && me.pop + 1 <= me.cap) W.issue(pid, { c: 'train', id: c.id, type: 'machop' });
+    }
+    const hasGym = count('gym') > 0;
+    let crystalW = workers.filter((u) => u.order.type === 'gather' && u.order.kind === 'crystal').length;
+    const wantCrystal = hasGym ? Math.ceil(workers.length * 0.3) : 1;
+    for (const u of workers) {
+      if (u.order.type !== 'idle') continue;
+      const kind = crystalW < wantCrystal ? 'crystal' : 'berry';
+      const r = W.nearestResource(u, kind, 40) || W.nearestResource(u, kind === 'crystal' ? 'berry' : 'crystal', 40);
+      if (r) { W.issue(pid, { c: 'target', ids: [u.id], target: r.id }); if (r.type === 'crystal') crystalW++; }
+    }
+    if (crystalW < wantCrystal - 1) {
+      const u = workers.find((x) => x.order.type === 'gather' && x.order.kind === 'berry' && !x.carry.amt);
+      const r = u && W.nearestResource(u, 'crystal', 40);
+      if (r) W.issue(pid, { c: 'target', ids: [u.id], target: r.id });
+    }
+    // finish abandoned foundations
+    for (const b of blds) {
+      if (b.built) continue;
+      if (!workers.some((u) => u.order.type === 'build' && u.order.target === b.id)) {
+        const u = this.pickWorker(workers, b);
+        if (u) W.issue(pid, { c: 'target', ids: [u.id], target: b.id });
+      }
+    }
+
+    // --- buildings
+    const pendingMart = blds.some((b) => b.type === 'mart' && !b.built);
+    if (me.cap < 100 && me.cap - me.pop <= 4 + 3 * count('gym', true) && !pendingMart) this.build('mart', workers);
+    if (!hasGym && workers.length >= 8) this.build('gym', workers);
+    if (count('gym', true) && !count('lab') && workers.length >= 11 && W.time > (this.key === 'easy' ? 420 : 220)) this.build('lab', workers);
+    if (this.key !== 'easy' && count('gym', true) === 1 && count('gym') === 1 && W.time > 330 && me.b > 300) this.build('gym', workers);
+    const towers = this.key === 'hard' ? 2 : this.key === 'normal' ? 1 : 0;
+    if (count('gym', true) && count('tower') < towers && W.time > 260) this.build('tower', workers, true);
+    // expand when the home berries run low
+    const homeBerries = [...W.ents.values()].filter((e) => e.kind === 'res' && e.type === 'berry' &&
+      Math.hypot(e.tx - this.homeT.x, e.ty - this.homeT.y) < 12).length;
+    if (homeBerries <= 2 && count('center') < 2 && W.time > 240) this.build('center', workers, false, this.expansion);
+
+    // --- research
+    const lab = blds.find((b) => b.type === 'lab' && b.built);
+    if (lab && !lab.queue.length && me.b > 300 && me.c > 250) {
+      for (const k of ['xattack', 'xdefend']) if (!me.upgrades[k] && !W.researching(pid, k)) { W.issue(pid, { c: 'research', id: lab.id, key: k }); break; }
+    }
+
+    // --- army production
+    const enemyTypes = {};
+    for (const e of W.unitsOf(this.enemy)) if (!UNITS[e.type].worker) enemyTypes[UNITS[e.type].type] = (enemyTypes[UNITS[e.type].type] || 0) + UNITS[e.type].pop;
+    for (const g of blds.filter((b) => b.type === 'gym' && b.built)) {
+      if (g.queue.length >= 2) continue;
+      const t = this.pickUnit(enemyTypes, !!lab);
+      if (W.canAfford(pid, UNITS[t].cost) && me.pop + UNITS[t].pop <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
+      if (!g.rally) {
+        const dx = Math.sign(W.map.starts[this.enemy].tx - this.homeT.x);
+        W.issue(pid, { c: 'rally', id: g.id, x: this.home.x + dx * 5 * TILE, y: this.home.y + dx * 5 * TILE });
+      }
+    }
+    if (lab && !lab.queue.length && army.length >= 6 && this.rand() < 0.35 && W.canAfford(pid, UNITS.snorlax.cost) && me.pop + 6 <= me.cap)
+      W.issue(pid, { c: 'train', id: lab.id, type: 'snorlax' });
+
+    // --- combat
+    const armyPop = army.reduce((s, u) => s + UNITS[u.type].pop, 0);
+    let threat = null;
+    for (const e of W.unitsOf(this.enemy)) {
+      for (const b of blds) if (Math.hypot(e.x - b.x, e.y - b.y) < 12 * TILE) { threat = e; break; }
+      if (threat) break;
+    }
+    const ids = (list) => list.map((u) => u.id);
+    if (threat) {
+      const defenders = army.filter((u) => u.order.type !== 'attack');
+      if (defenders.length) W.issue(pid, { c: 'move', ids: ids(defenders), x: threat.x, y: threat.y, attack: true });
+      if (this.attacking && armyPop < this.wave * 0.5) this.attacking = false;
+    } else if (!this.attacking && armyPop >= this.wave) {
+      this.attacking = true;
+      this.wave += this.d.waveGrow;
+      const t = this.enemyTarget();
+      if (t) W.issue(pid, { c: 'move', ids: ids(army), x: t.x, y: t.y, attack: true });
+    } else if (this.attacking) {
+      if (armyPop < (this.wave - this.d.waveGrow) * 0.3) {
+        this.attacking = false;
+        W.issue(pid, { c: 'move', ids: ids(army), x: this.home.x, y: this.home.y, attack: true });
+      } else {
+        const idle = army.filter((u) => u.order.type === 'idle');
+        const t = this.enemyTarget();
+        if (idle.length && t) W.issue(pid, { c: 'move', ids: ids(idle), x: t.x, y: t.y, attack: true });
+      }
+    }
+  }
+
+  enemyTarget() {
+    let best = null, bd = Infinity;
+    for (const b of this.w.buildingsOf(this.enemy)) {
+      const d = Math.hypot(b.x - this.home.x, b.y - this.home.y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    if (best) {
+      // aim at the near side of the building so units path to it
+      const dx = this.home.x - best.x, dy = this.home.y - best.y, d = Math.hypot(dx, dy) || 1;
+      return { x: best.x + (dx / d) * best.radius * 1.2, y: best.y + (dy / d) * best.radius * 1.2 };
+    }
+    return null;
+  }
+
+  pickUnit(enemyTypes, hasLab) {
+    const opts = ['charmander', 'squirtle', 'bulbasaur'];
+    if (hasLab) opts.push('pikachu');
+    if (this.d.counter && this.rand() < 0.6) {
+      let top = null, tv = 0;
+      for (const [k, v] of Object.entries(enemyTypes)) if (v > tv) { tv = v; top = k; }
+      if (top) {
+        let c = COUNTER[top];
+        if (c === 'bulbasaur' && hasLab && this.rand() < 0.4) c = 'pikachu';
+        return c;
+      }
+    }
+    return opts[Math.floor(this.rand() * opts.length)];
+  }
+
+  pickWorker(workers, near) {
+    let best = null, bd = Infinity;
+    for (const u of workers) {
+      if (u.order.type === 'build') continue;
+      const d = Math.hypot(u.x - near.x, u.y - near.y) + (u.carry.amt ? 60 : 0);
+      if (d < bd) { bd = d; best = u; }
+    }
+    return best;
+  }
+
+  build(type, workers, forward = false, around) {
+    if (this.built) return; // one building per think
+    const W = this.w, pid = this.pid;
+    const def = BUILDINGS[type];
+    if (!W.canAfford(pid, def.cost) || !W.reqMet(pid, def.req)) return;
+    let c = around || this.homeT;
+    if (forward) {
+      const e = W.map.starts[this.enemy];
+      const dx = Math.sign(e.tx - this.homeT.x), dy = Math.sign(e.ty - this.homeT.y);
+      c = { x: this.homeT.x + dx * 6, y: this.homeT.y + dy * 6 };
+    }
+    const spot = this.findSpot(type, c);
+    if (!spot) return;
+    const u = this.pickWorker(workers, { x: spot.tx * TILE, y: spot.ty * TILE });
+    if (!u) return;
+    W.issue(pid, { c: 'build', ids: [u.id], type, tx: spot.tx, ty: spot.ty });
+    this.built = true;
+  }
+
+  findSpot(type, c) {
+    const W = this.w;
+    const def = BUILDINGS[type];
+    const res = [...W.ents.values()].filter((e) => e.kind === 'res');
+    for (let r = 2; r <= 14; r++) {
+      const cands = [];
+      for (let y = c.y - r; y <= c.y + r; y++)
+        for (let x = c.x - r; x <= c.x + r; x++)
+          if (Math.max(Math.abs(x - c.x), Math.abs(y - c.y)) === r) cands.push({ tx: x - (def.w >> 1), ty: y - (def.h >> 1) });
+      for (let i = cands.length - 1; i > 0; i--) {
+        const j = Math.floor(this.rand() * (i + 1));
+        [cands[i], cands[j]] = [cands[j], cands[i]];
+      }
+      for (const s of cands) {
+        if (!W.canPlace(type, s.tx, s.ty, this.pid)) continue;
+        // keep a 1-tile gap around buildings and 2 tiles from resources
+        let ok = true;
+        for (let y = s.ty - 1; y <= s.ty + def.h && ok; y++)
+          for (let x = s.tx - 1; x <= s.tx + def.w && ok; x++)
+            if (W.blockedTile(x, y) && W.occ[y * W.w + x]) ok = false;
+        if (!ok) continue;
+        if (res.some((e) => e.tx >= s.tx - 2 && e.tx <= s.tx + def.w + 1 && e.ty >= s.ty - 2 && e.ty <= s.ty + def.h + 1)) continue;
+        return s;
+      }
+    }
+    return null;
+  }
+}
