@@ -109,6 +109,7 @@ export function generateMap(seed, size = MAP_SIZE) {
   for (const [dx, dy] of [[2, 4], [0, 4], [3, 3]]) addRes(10 + dx, h - 14 + dy, 'crystal');
   // contested middle
   for (const [dx, dy] of [[-2, -1], [-1, -2], [-3, 0], [0, -3]]) addRes(mid + dx, mid + dy, 'crystal');
+  for (const [dx, dy] of [[-5, 1], [1, -5], [-5, -1], [-1, -5]]) addRes(mid + dx, mid + dy, 'berry');
 
   // connectivity check between bases; carve straight if needed
   const s1c = { x: w - 1 - c0.x, y: h - 1 - c0.y };

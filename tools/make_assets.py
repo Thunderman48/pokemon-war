@@ -34,6 +34,10 @@ PAL = {
     "m": (156, 166, 188), "M": (108, 116, 142), "z": (170, 110, 70),
     # snorlax
     "s": (52, 92, 112), "S": (34, 62, 80), "a": (238, 226, 196), "A": (200, 186, 150),
+    # rayquaza
+    "v": (72, 170, 96), "V": (34, 104, 62), "l": (40, 44, 52), "j": (250, 206, 60),
+    # misc
+    "P": (240, 150, 200), "L": (140, 230, 120),
 }
 
 SPRITES = {
@@ -284,6 +288,188 @@ SPRITES = {
         "..aaaa.SSSSSSS..aaaa..",
         "..aAAa.........aAAa...",
     ],
+    "eevee": [
+        "..........N...N.",
+        "..........nN.Nn.",
+        "..........nnnnn.",
+        ".cc.......nnnnnn",
+        "cccn.....nnnkwnn",
+        "ccnnn....nnnknnn",
+        ".nnnnn..ccnnnnN.",
+        "..nnnn.cccccnn..",
+        "...nnnnccccc....",
+        "....nnnnccc.....",
+        "....nnnnnnn.....",
+        "....nn.n.nn.....",
+        "....NN.N.NN.....",
+    ],
+    "vaporeon": [
+        "...........xx.....",
+        "..........xbbx....",
+        "dd........xbbbb...",
+        "dDd......bbbbbbb..",
+        ".dDd.....bbbbwkb..",
+        "..dd....xxbbbkbbb.",
+        "...b...xxxbbbbbb..",
+        "...bb.xxxxbbbbB...",
+        "....bbbbbbbbbb....",
+        "....bbbbbbbbbb....",
+        ".....bbbbbbbbb....",
+        ".....bB.bB.bB.....",
+        ".....BB.BB.BB.....",
+    ],
+    "jolteon": [
+        "..........y...y...",
+        "..........yy.yy...",
+        "..........yyyyy...",
+        ".y.......yyyywky..",
+        "yyy......yyyyykyy.",
+        ".yyy....xxyyyyyy..",
+        "yyyyy..xxxyyyY....",
+        ".yyyyyxxxxyyy.....",
+        "..yyyyyyyyyyy.....",
+        "...yyyyyyyyyy.....",
+        "....yy.y..yy......",
+        "....YY.Y..YY......",
+    ],
+    "flareon": [
+        "..........o...o...",
+        "..........oo.oo...",
+        ".cc.......ooooo...",
+        "cccc.....oooowko..",
+        "ccccc....oooookoo.",
+        "cccccc..cccooooo..",
+        ".ccccc.ccccooo....",
+        "..ccccoccccooo....",
+        "....ooooooooo.....",
+        "....ooooooooo.....",
+        "....oo.o..oo......",
+        "....OO.O..OO......",
+    ],
+    "pidgey": [
+        "......nnn....",
+        ".....nnnnn...",
+        "....nnnckn...",
+        "....nnccccnh.",
+        "...nnnccccc..",
+        ".nnnnnncccc..",
+        "NnnnNnnccc...",
+        ".NNnnnnccc...",
+        "..NNnnnnn....",
+        "....p..p.....",
+    ],
+    "pidgeotto": [
+        ".......rr.......",
+        "......rrnn......",
+        ".....rnnnnn.....",
+        ".....nnnncknn...",
+        "....nnnncccchh..",
+        "....nnnccccc....",
+        "..nnnnnncccc....",
+        "nnNnnnnnccc.....",
+        "NnNNnnnnccc.....",
+        ".NNNNnnnnn......",
+        "...NNNnnn.......",
+        "......p.p.......",
+        "......p.p.......",
+    ],
+    "pidgeot": [
+        "..........ry..........",
+        "........rryy..........",
+        "......rryynnn.........",
+        ".........nnnnnn.......",
+        ".........nnncknhh.....",
+        "nn......nnnnccchhh....",
+        "Nnnn....nnnccccc......",
+        ".NNnnn.nnnccccc.......",
+        "..NNnnnnnnccccc.......",
+        "...NNNnnnnnccc........",
+        ".....NNNnnnnn.........",
+        "......NNNnnn..........",
+        "....yyNN..p.p.........",
+        "...ryy.....p.p........",
+    ],
+    "geodude": [
+        ".......hhhh........",
+        ".....hhhhhhhh......",
+        "....hhhhhhhhhh.....",
+        "...hhhhkhhhkhhh....",
+        "hh.hhhhkhhhkhhh.hh.",
+        "hhHhhhhhhhhhhhhHhh.",
+        ".hhHhhhhHHhhhhHhh..",
+        "..HhhhhhhhhhhhhH...",
+        "...HhhhhhhhhhhH....",
+        ".....HHhhhhHH......",
+    ],
+    "graveler": [
+        ".......hhhhh.......",
+        ".....hhhhhhhhh.....",
+        "..hh.hhhkhhkhh.hh..",
+        ".hhhhhhhkhhkhhhhhh.",
+        ".hhHhhhhhhhhhhhHhh.",
+        "..hhhhHHhhhHHhhhh..",
+        ".hh.hhhhhhhhhhh.hh.",
+        "hhh.HhhhhhhhhhH.hhh",
+        ".H...hhhhhhhhh...H.",
+        ".....hhHhhHhhh.....",
+        "....hhh.....hhh....",
+        "....HHH.....HHH....",
+    ],
+    "golem": [
+        "......nnnnnnn........",
+        "....nnnNnnnNnnn......",
+        "...nnNnnnnnnnNnn.....",
+        "..nnnnnnnnnnnnnnn....",
+        ".nnNnnnnnnhhhhnnnn...",
+        ".nnnnnnnnhhkhkhhnn...",
+        "nnnnNnnnnhhhhhhhnnn..",
+        "nnnnnnnnnnhhhhhnnnnhh",
+        "nNnnnnnnnnnnnnnnnnhhh",
+        ".nnnnNnnnnnnnnNnnnn..",
+        "..nnnnnnnnnnnnnnnn...",
+        "...hhnnnnnnnnnnhh....",
+        "...hhh........hhh....",
+        "...HHH........HHH....",
+    ],
+    "rayquaza": [
+        "..............................vv....",
+        "...........................vvvvv.v..",
+        "..........................vvvvvvvvv.",
+        ".........vvvv............vvvvvwkvvvv",
+        ".......vvvvvvvv.........vvvvvvvvvvvv",
+        "......vvvyyvvvvv.......vvvvvvvvVrrr.",
+        ".....vvvvvvvvvvvv.....vvvvvvvvVV....",
+        ".....vvvV....vvvvv...vvvyyvvvV......",
+        "....vvvV......vvvvv.vvvvvvvvV.......",
+        "....vvyV.......vvvvvvvvvvvVV........",
+        "...vvvvV........vvvyyvvvVV..........",
+        "...vvvV..........VvvvvVV............",
+        "..vvvV.............VVV..............",
+        ".vvvV...............................",
+        "vvvV................................",
+        "vyV.................................",
+    ],
+    "megarayquaza": [
+        "..........................................VV....",
+        ".......................................VVVVV.V..",
+        "..............jjjjjjjjjjj.............VVVVVVVVV.",
+        "........jjjjjj...........jjjjjjjjjjjjVVVVVwkVVVV",
+        "....jjjjj.........VVVV..............VVVVVVVVVVVV",
+        "..jjj.......VVVVVVVVVVVVV..........VVVVVVVVVVrrr",
+        ".jj........VVVlvvvlVVVVVVVV.......VVVVVVVVVV....",
+        "jj........VVVvvvvvvvVVVVVVVVV....VVVVlVVVV......",
+        "j........VVVVV.......VVVVVVVVV..VVVVvvVVV.......",
+        ".........VVVlV.........VVVVVVVVVVVVvvvVVV.......",
+        "........VVVVV...........VVVVVVVVVlvvVVVV........",
+        "........VVVV.............VVVVVVVVvvVVV..........",
+        ".......VVVV................VVVVVVVVV............",
+        "......VVVV..................VVVVV...............",
+        ".....VVV........................................",
+        "....VVV.........................................",
+        "...VV...........................................",
+        "..jj............................................",
+        ".jj.............................................",
+    ],
     "berry": [
         ".....gg.gg.....",
         "...ggggggggg...",
@@ -312,6 +498,78 @@ SPRITES = {
         ".hhhhbbbdhhhhh",
         "hhHhhhhhhhHhhh",
         ".HHhhhHHhhhHH.",
+    ],
+}
+
+
+ICONS = {
+    "thunderstone": [
+        "...LLLL...",
+        "..LLLyLL..",
+        ".LLLyyLLL.",
+        ".LLyyyyLL.",
+        ".LLLLyyLL.",
+        ".LLLyyLLL.",
+        "..LLyLLL..",
+        "...LLLL...",
+    ],
+    "waterstone": [
+        "...bbbb...",
+        "..bbwbbb..",
+        ".bbwbbbbb.",
+        ".bbbbbbBb.",
+        ".bbbbbBBb.",
+        ".bbbbBBbb.",
+        "..bbBBbb..",
+        "...bbbb...",
+    ],
+    "firestone": [
+        "...oooo...",
+        "..ooyooo..",
+        ".ooyyrooo.",
+        ".oyyrrroo.",
+        ".oorryyoo.",
+        ".ooorryoo.",
+        "..oooroo..",
+        "...oooo...",
+    ],
+    "megastone": [
+        "...wwww...",
+        "..wPPbbw..",
+        ".wPPPbbbw.",
+        ".wPyyvvbw.",
+        ".wyyyvvvw.",
+        ".wyyovvvw.",
+        "..woovvw..",
+        "...wwww...",
+    ],
+    "thunder": [
+        "....yyy.",
+        "...yyy..",
+        "..yyy...",
+        ".yyyyyy.",
+        "....yy..",
+        "...yy...",
+        "..yy....",
+        ".y......",
+    ],
+    "heal": [
+        ".LL..LL.",
+        "LLLLLLLL",
+        "LLLwwLLL",
+        "LLwwwwLL",
+        ".LLwwLL.",
+        "..LLLL..",
+        "...LL...",
+    ],
+    "sleep": [
+        "PPPPP...",
+        "...P....",
+        "..P.....",
+        ".P..www.",
+        "PPPPP.w.",
+        ".....w..",
+        "....www.",
     ],
 }
 
@@ -450,6 +708,33 @@ def build_tower():
     return img
 
 
+def build_skypillar():
+    w, h = 48, 72
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    stone, dark, moss = (170, 176, 160), (120, 126, 112), (96, 150, 90)
+    # base steps
+    d.rectangle([1, 60, 46, 70], fill=dark, outline=OUTLINE)
+    d.rectangle([5, 52, 42, 61], fill=stone, outline=OUTLINE)
+    # pillar
+    d.rectangle([10, 10, 37, 53], fill=stone, outline=OUTLINE)
+    for yy in range(16, 52, 6):
+        d.line([11, yy, 36, yy], fill=dark)
+    for yy in range(16, 52, 12):
+        d.line([20, yy, 20, yy + 6], fill=dark)
+        d.line([29, yy + 6, 29, min(52, yy + 12)], fill=dark)
+    # broken top
+    d.polygon([(10, 10), (14, 4), (18, 8), (23, 2), (28, 7), (33, 3), (37, 10)], fill=stone, outline=OUTLINE)
+    # moss
+    for (x0, y0, x1, y1) in ((11, 20, 16, 24), (30, 34, 36, 39), (12, 44, 18, 47), (24, 9, 30, 12)):
+        d.ellipse([x0, y0, x1, y1], fill=moss)
+    # glowing door with green emblem
+    d.rectangle([19, 40, 28, 53], fill=(40, 60, 50), outline=OUTLINE)
+    d.ellipse([20, 26, 27, 33], fill=(90, 220, 130), outline=OUTLINE)
+    d.point((23, 28), fill=(240, 255, 240))
+    return img
+
+
 # ---------------------------------------------------------------- tiles
 def tiles():
     rnd = random.Random(7)
@@ -533,8 +818,11 @@ def main():
     for k in ("berry", "crystal"):
         imgs[k] = sprite_image(SPRITES[k])
         save(imgs[k], "res", k + ".png")
+    for k, rows in ICONS.items():
+        imgs["i_" + k] = sprite_image(rows)
+        save(imgs["i_" + k], "icons", k + ".png")
     blds = {"center": build_center(), "mart": build_mart(), "gym": build_gym(),
-            "lab": build_lab(), "tower": build_tower()}
+            "lab": build_lab(), "tower": build_tower(), "skypillar": build_skypillar()}
     for k, im in blds.items():
         save(im, "buildings", k + ".png")
         imgs["b_" + k] = im
@@ -557,7 +845,7 @@ def main():
         rowh = 0
         y = pad
         sheet_w = 1400
-        canvas = Image.new("RGBA", (sheet_w, 1000), (90, 160, 80, 255))
+        canvas = Image.new("RGBA", (sheet_w, 2400), (90, 160, 80, 255))
         for k, im in imgs.items():
             big = im.resize((im.width * scale, im.height * scale), Image.NEAREST)
             if x + big.width > sheet_w:

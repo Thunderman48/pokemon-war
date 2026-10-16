@@ -9,36 +9,53 @@ Gather berries and crystals, build up your base, train Pokémon, evolve them in 
 > The Pokémon Company. Pokémon and character names are trademarks of their respective owners.
 > All pixel art in `assets/` is original art made for this project.
 
+## What's new in V2
+
+- **Evolution needs research**: Pokémon need battle XP *and* the matching Lab research to evolve
+  (e.g. research Charmeleon, then Charizard). Stones unlock Raichu and Eevee's forms.
+- **New Pokémon**: Eevee (you pick Vaporeon, Jolteon or Flareon), Geodude → Graveler → Golem,
+  Pidgey → Pidgeotto → Pidgeot, and the legendary **Rayquaza → Mega Rayquaza**. Rayquaza is a huge flying dragon
+  whose Dragon Breath hits an area, and you can only have one. Charizard can fly too.
+- **Flying units** fly over trees and water. Close-range fighters (Machop, Snorlax) can't hit them.
+- **New building**: the Sky Pillar trains flying Pokémon and Rayquaza, and researches the Mega Stone.
+- **More research**: Attack/Defense levels 1–3. Economy: Harvest, Big Bag, Mart Expansion. Buildings: Fortify, Training Drill, Tower Upgrade.
+- **Special moves** you aim with a tap: Thunder (area damage), Heal Pulse (area heal) and Sleep Powder (puts enemies to sleep).
+- More types: Flying, Rock and Dragon.
+- The original game is still playable at `/v1/` (and saved on the `v1` branch).
+
 ## Features
 
-- **Classic RTS**: workers, two resources, supply, buildings, tech requirements, upgrades, fog of war.
-- **Pokémon twists**:
-  - Type advantages: Fire > Grass > Water > Fire, Electric > Water, Fighting > Normal.
-  - Units gain XP from damage they deal and **evolve** (Charmander → Charmeleon → Charizard and others).
-  - The Pokémon Center heals nearby Pokémon.
-- **VS Computer** on Easy, Normal, or Hard. The AI builds, expands, counters your army's types, and attacks in waves.
+- **Classic RTS**: workers, two resources, supply, buildings, tech requirements, research, fog of war.
+- **VS Computer** on Easy, Normal or Hard. The AI researches, evolves, counters your army's types, uses special moves and attacks in waves.
 - **Online 1v1** with a 5-letter room code. Play is peer-to-peer over WebRTC (PeerJS), so no server is needed.
 - **Made for touch**: tap to select and command, drag to scroll, pinch to zoom, long-press to box-select, a minimap, and quick ARMY / IDLE / BASE buttons. Mouse and keyboard also work on desktop.
 - Can be installed to the home screen (PWA manifest) for fullscreen play.
 
 ## Roster
 
-| Building | Cost | Notes |
-|---|---|---|
-| Pokémon Center | 400 berries | HQ. Trains Machop, stores resources, heals Pokémon |
-| Poké Mart | 100 berries | +10 supply |
-| Gym | 150 berries | Trains Charmander, Squirtle, Bulbasaur, Pikachu |
-| Lab | 150 berries, 100 crystals | Needs a Gym. Trains Snorlax, X Attack / X Defend upgrades, unlocks final evolutions and Pikachu |
-| Tower | 100 berries, 50 crystals | Needs a Gym. Defensive tower |
+| Building | Cost (berries / crystals) | Trains | Research |
+|---|---|---|---|
+| Pokémon Center | 400 | Machop | Harvest, Big Bag, Mart Expansion, Fortify, Training Drill, Tower Upgrade |
+| Poké Mart | 100 | | +10 supply |
+| Gym | 150 | Charmander, Squirtle, Bulbasaur, Geodude, Eevee, Pikachu* | Thunder, Heal Pulse, Sleep Powder |
+| Lab (needs Gym) | 150 / 100 | Snorlax | Attack, Defense, every evolution, Thunder/Water/Fire Stone |
+| Tower (needs Gym) | 100 / 50 | | Defensive, hits flyers |
+| Sky Pillar (needs Lab) | 300 / 250 | Pidgey, Rayquaza (max 1) | Mega Stone |
 
-| Pokémon | Type | Role |
+\*Pikachu needs a Lab.
+
+| Line | Type | Notes |
 |---|---|---|
 | Machop | Fighting | Worker |
-| Charmander → Charmeleon → Charizard | Fire | Ranged damage |
-| Squirtle → Wartortle → Blastoise | Water | Tough brawler |
-| Bulbasaur → Ivysaur → Venusaur | Grass | Long-range |
-| Pikachu → Raichu | Electric | Fast, rapid attacks |
+| Charmander → Charmeleon → Charizard | Fire | Ranged. Charizard flies |
+| Squirtle → Wartortle → Blastoise | Water | Tough brawler, Heal Pulse |
+| Bulbasaur → Ivysaur → Venusaur | Grass | Long range, Sleep Powder |
+| Geodude → Graveler → Golem | Rock | Tank, strong vs Fire & Flying |
+| Eevee → Vaporeon / Jolteon / Flareon | Normal → Water / Electric / Fire | You choose. Vaporeon heals, Jolteon uses Thunder |
+| Pikachu → Raichu | Electric | Fast, Thunder |
+| Pidgey → Pidgeotto → Pidgeot | Flying | Fast flyer |
 | Snorlax | Normal | Huge tank, double damage to buildings |
+| Rayquaza → Mega Rayquaza | Dragon | Legendary flyer, area Dragon Breath, only one |
 
 All numbers are in `js/config.js` if you want to rebalance.
 
@@ -55,7 +72,7 @@ There is no build step. The site is plain HTML, CSS, and JavaScript modules.
 
 ```bash
 npx http-server -c-1 .     # then open http://localhost:8080
-npm test                   # headless AI-vs-AI simulation smoke test
+npm test                   # feature checks + headless AI-vs-AI match
 ```
 
 (Opening `index.html` directly from disk won't work because browsers block ES modules on `file://`.)

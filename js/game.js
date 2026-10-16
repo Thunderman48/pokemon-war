@@ -1,12 +1,11 @@
 // Game controller: main loop, touch/mouse input, selection, HUD panel, networking glue.
-import { TICK, TILE, UNITS, BUILDINGS, RESEARCH, EVO_XP, TYPE_COLORS } from './config.js';
-import { World, unitStats } from './world.js';
+import { TICK, TILE, UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, EVO_XP, TYPE_COLORS, researchCost, researchTime } from './config.js';
+import { World, isFlying } from './world.js';
 import { AI } from './ai.js';
 import { Renderer } from './render.js';
 import { sfx, unlockAudio } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
-const SHORT = { center: 'CENTER', mart: 'MART', gym: 'GYM', lab: 'LAB', tower: 'TOWER' };
 
 export class Game {
   constructor({ mode, difficulty = 'normal', seed, conn, assets, onEnd }) {
@@ -27,6 +26,9 @@ export class Game {
     this.forceMove = false;
     this.buildMenu = false;
     this.boxMode = false;
+    this.casting = null;
+    this.castPos = null;
+    this.page = 0;
     this.paused = false;
     this.over = false;
     this.ptrs = new Map();
@@ -138,7 +140,12 @@ export class Game {
     if (this.placing && !this.selectedWorkers().length) this.cancelPlacement();
     this.keyPan(dt);
     if (this.placing) this.placing.ok = W.canPlace(this.placing.type, this.placing.tx, this.placing.ty, this.pid);
-    this.renderer.draw(alpha, now, { selection: this.selection, ghost: this.placing, box: this.box });
+    let target = null;
+    if (this.casting && this.castPos) {
+      const ab = ABILITIES[this.casting];
+      target = { x: this.castPos.x, y: this.castPos.y, r: ab.radius * TILE, color: this.casting === 'heal' ? '#6eff8c' : this.casting === 'sleep' ? '#ff9ad8' : '#fff36b' };
+    }
+    this.renderer.draw(alpha, now, { selection: this.selection, ghost: this.placing, box: this.box, target });
     if (now - this.uiT > 120) { this.uiT = now; this.updateHud(); }
     if (W.winner >= 0 && !this.over) this.finish(W.winner === this.pid ? 'win' : 'lose');
   }
@@ -212,6 +219,8 @@ export class Game {
     this.selection = new Set(ids);
     this.buildMenu = false;
     this.forceMove = false;
+    this.casting = null;
+    this.page = 0;
     this.cancelPlacement();
     if (ids.length) sfx('select');
   }
@@ -263,7 +272,8 @@ export class Game {
     if (down) this.keys.add(k); else this.keys.delete(k);
     if (!down) return;
     if (k === 'escape') {
-      if (this.placing) this.cancelPlacement();
+      if (this.casting) this.casting = null;
+      else if (this.placing) this.cancelPlacement();
       else if (this.forceMove || this.buildMenu) { this.forceMove = false; this.buildMenu = false; }
       else this.select([]);
     }
@@ -325,6 +335,7 @@ export class Game {
   onMove(e) {
     const p = this.ptrs.get(e.pointerId);
     const r = this.renderer;
+    if (e.pointerType === 'mouse') this.castPos = r.toWorld(e.clientX, e.clientY);
     if (!p) {
       if (this.placing && e.pointerType === 'mouse') this.setGhost(r.toWorld(e.clientX, e.clientY));
       return;
@@ -393,8 +404,11 @@ export class Game {
       let d;
       if (e.kind === 'unit') {
         const img = this.renderer.spriteFor(e);
-        const cy = e.y + 4 - (img ? img.height / 2 : 6);
-        d = Math.max(0, Math.hypot(e.x - w.x, cy - w.y) - Math.max(e.radius, img ? img.width / 2 - 2 : 6));
+        const top = this.renderer.unitTop(e, performance.now()), bottom = e.y + 4 - this.renderer.lift(e, performance.now());
+        const hw = img ? (img.width * this.renderer.unitScale(e)) / 2 - 2 : 6;
+        // distance to the sprite's box (0 when tapping on it)
+        const dx = Math.max(e.x - hw - w.x, 0, w.x - (e.x + hw)), dy = Math.max(top - w.y, 0, w.y - bottom);
+        d = Math.hypot(dx, dy);
       } else if (e.kind === 'building') {
         const img = this.renderer.spriteFor(e);
         const x0 = e.tx * TILE, x1 = x0 + e.w * TILE, y1 = (e.ty + e.h) * TILE, y0 = y1 - (img ? img.height : e.h * TILE);
@@ -422,8 +436,14 @@ export class Game {
       if (ptype === 'mouse') this.confirmPlacement();
       return;
     }
-    const ent = this.pick(w, ptype);
     const units = this.selectedUnits();
+    if (this.casting && units.length) {
+      this.issue({ c: 'cast', ids: units.map((u) => u.id), key: this.casting, x: w.x, y: w.y });
+      r.ping(w.x, w.y, '#fff36b', now); sfx('attack');
+      this.casting = null;
+      return;
+    }
+    const ent = this.pick(w, ptype);
     if (this.forceMove && units.length) {
       this.issue({ c: 'move', ids: units.map((u) => u.id), x: w.x, y: w.y, attack: false });
       r.ping(w.x, w.y, '#ffffff', now); sfx('order');
@@ -477,6 +497,7 @@ export class Game {
   // mouse right-click: always a command
   command(sx, sy) {
     const units = this.selectedUnits();
+    if (this.casting && units.length) { this.tap(sx, sy, 'mouse'); return; }
     if (!units.length) {
       const b = this.selectedBuilding();
       if (b && BUILDINGS[b.type].trains) {
@@ -622,45 +643,88 @@ export class Game {
     return `<span class="cost">${cost.b ? cost.b : ''}${cost.c ? ` <span class="c">${cost.c}</span>` : ''}</span>`;
   }
 
+  lbl(text) {
+    const plain = text.replace(/<[^>]+>/g, '');
+    return `<span class="lbl${plain.length > 6 ? ' sm' : ''}">${text}</span>`;
+  }
+
+  researchIcon(key) {
+    const ic = RESEARCH[key].icon;
+    if (!ic) return '';
+    return `<img src="${ic.startsWith('i:') ? `assets/icons/${ic.slice(2)}.png` : `assets/units/${ic}.png`}" alt="">`;
+  }
+
+  // Fit buttons into the 8 command slots, adding a MORE button to flip pages.
+  paginate(items, tail) {
+    const cap = 8;
+    if (items.length + tail.length <= cap) return items.join('') + tail.join('');
+    const per = cap - tail.length - 1;
+    const pages = Math.ceil(items.length / per);
+    const page = this.page % pages;
+    return items.slice(page * per, page * per + per).join('') +
+      `<button class="cmd" data-a="more"><span class="lbl">MORE<br>${page + 1}/${pages}</span></button>` + tail.join('');
+  }
+
   renderPanel() {
     const W = this.world, pid = this.pid, P = W.players[pid];
     const ents = this.selectedEnts();
     const units = ents.filter((e) => e.kind === 'unit' && e.owner === pid);
     const b = ents.length === 1 && ents[0].kind === 'building' ? ents[0] : null;
     const afford = (c) => W.canAfford(pid, c);
+    const X = '<button class="cmd" data-a="desel"><span class="lbl x">✕</span></button>';
     let sig, info = '', cmds = '';
 
     if (units.length) {
       const workers = units.some((u) => UNITS[u.type].worker);
       const u = units[0];
-      sig = `U|${units.map((x) => x.id + ':' + x.stage).join(',')}|${this.buildMenu}|${this.forceMove}|${workers && this.buildMenu ? Object.keys(BUILDINGS).map((k) => +afford(BUILDINGS[k].cost) + '' + +W.reqMet(pid, BUILDINGS[k].req)).join('') : ''}|${units.length === 1 ? W.hasBuilt(pid, 'lab') : ''}`;
+      const abil = [...new Set(units.map((x) => FORMS[x.form].ability).filter(Boolean))];
+      const evoChoices = units.length === 1 && u.evoReady ? (FORMS[u.form].next || []).filter((n) => P.research[n.r]) : [];
+      sig = `U|${units.map((x) => x.id + ':' + x.form).join(',')}|${this.buildMenu}|${this.forceMove}|${this.casting}|${this.page}|` +
+        `${abil.map((k) => k + P.research[ABILITIES[k].research]).join(',')}|${evoChoices.map((n) => n.to).join(',')}|` +
+        `${workers && this.buildMenu ? Object.keys(BUILDINGS).map((k) => +afford(BUILDINGS[k].cost) + '' + +W.reqMet(pid, BUILDINGS[k].req)).join('') : ''}|` +
+        `${units.length === 1 ? JSON.stringify(P.research) : ''}`;
       if (sig === this.panelSig) return this.updateDynamic(ents);
       if (units.length === 1) {
-        const def = UNITS[u.type];
-        const st = unitStats(u, P.upgrades);
-        const next = u.stage + 1 < def.stages.length ? EVO_XP[u.stage + 1] : 0;
-        const evoTxt = !next ? 'Fully evolved' : u.stage + 1 >= 2 && !W.hasBuilt(pid, 'lab') ? `Evolves at ${next} XP (needs Lab)` : `Evolves at ${next} XP`;
-        info = `<div class="portrait"><img src="assets/units/${def.stages[u.stage]}.png" alt=""></div>
-          <div class="details"><div class="name">${def.names[u.stage]}</div>
-          <div class="sub"><span class="type" style="background:${TYPE_COLORS[def.type]}">${def.type.toUpperCase()}</span><span data-bind="hptext"></span></div>
+        const def = UNITS[u.type], f = FORMS[u.form];
+        const st = W.stats(u);
+        const nexts = f.next || [];
+        let evoTxt = '';
+        if (!nexts.length) evoTxt = f.stage ? 'Fully evolved' : '';
+        else if (u.evoReady) evoTxt = 'Ready! Choose an evolution →';
+        else {
+          const done = nexts.filter((n) => P.research[n.r]);
+          evoTxt = `Evolves at ${EVO_XP[f.stage + 1]} XP` + (done.length ? '' : ` · needs ${nexts.map((n) => RESEARCH[n.r].name).join(' / ')}`);
+        }
+        info = `<div class="portrait"><img src="assets/units/${u.form}.png" alt=""></div>
+          <div class="details"><div class="name">${f.name}</div>
+          <div class="sub"><span class="type" style="background:${TYPE_COLORS[f.type]}">${f.type.toUpperCase()}</span><span data-bind="hptext"></span></div>
           <div class="meter"><i data-bind="hp"></i></div>
-          ${def.stages.length > 1 ? `<div class="meter xp"><i data-bind="xp"></i></div><div class="sub">${evoTxt}</div>` : `<div class="desc">${def.desc}</div>`}
-          <div class="sub">ATK ${Math.round(st.dmg)} · RNG ${(st.range / TILE).toFixed(1)} · <span data-bind="status"></span></div></div>`;
+          ${nexts.length ? `<div class="meter xp"><i data-bind="xp"></i></div>` : ''}
+          ${evoTxt ? `<div class="sub">${evoTxt}</div>` : `<div class="desc">${def.desc}</div>`}
+          <div class="sub">ATK ${Math.round(st.dmg)} · RNG ${(st.range / TILE).toFixed(1)}${isFlying(u) ? ' · FLYING' : ''} · <span data-bind="status"></span></div></div>`;
       } else {
-        info = `<div class="multi">${units.slice(0, 24).map((x) => `<button class="mini" data-a="only" data-v="${x.id}"><img src="assets/units/${UNITS[x.type].stages[x.stage]}.png" alt=""><b data-hpid="${x.id}"></b></button>`).join('')}</div>`;
+        info = `<div class="multi">${units.slice(0, 24).map((x) => `<button class="mini" data-a="only" data-v="${x.id}"><img src="assets/units/${x.form}.png" alt=""><b data-hpid="${x.id}"></b></button>`).join('')}</div>`;
       }
+      const items = [];
       if (this.buildMenu && workers) {
         for (const k of Object.keys(BUILDINGS)) {
           const d = BUILDINGS[k];
           const locked = !W.reqMet(pid, d.req);
-          cmds += `<button class="cmd${!afford(d.cost) ? ' off' : ''}${locked ? ' locked' : ''}" data-a="place" data-v="${k}"><img src="assets/buildings/${k}.png" alt=""><span class="lbl">${SHORT[k]}</span>${this.costHtml(d.cost)}</button>`;
+          items.push(`<button class="cmd${!afford(d.cost) ? ' off' : ''}${locked ? ' locked' : ''}" data-a="place" data-v="${k}"><img src="assets/buildings/${k}.png" alt=""><span class="lbl">${d.short}</span>${this.costHtml(d.cost)}</button>`);
         }
-        cmds += `<button class="cmd" data-a="back"><span class="lbl">BACK</span></button>`;
+        cmds = this.paginate(items, ['<button class="cmd" data-a="back"><span class="lbl">BACK</span></button>']);
       } else {
-        cmds += `<button class="cmd" data-a="stop"><span class="lbl">STOP</span></button>`;
-        cmds += `<button class="cmd${this.forceMove ? ' active' : ''}" data-a="force"><span class="lbl">MOVE<br>ONLY</span></button>`;
-        if (workers) cmds += `<button class="cmd" data-a="build"><img src="assets/buildings/center.png" alt=""><span class="lbl">BUILD</span></button>`;
-        cmds += `<button class="cmd" data-a="desel"><span class="lbl x">✕</span></button>`;
+        for (const n of evoChoices)
+          items.push(`<button class="cmd active" data-a="evolve" data-v="${n.to}"><img src="assets/units/${n.to}.png" alt="">${this.lbl(FORMS[n.to].name.toUpperCase())}</button>`);
+        for (const k of abil) {
+          const ab = ABILITIES[k];
+          const known = P.research[ab.research];
+          items.push(`<button class="cmd${known ? '' : ' locked off'}${this.casting === k ? ' active' : ''}" data-a="cast" data-v="${k}"><img src="assets/icons/${ab.icon}.png" alt="">${this.lbl(ab.name.toUpperCase())}<span class="cost" data-bind="cd-${k}"></span></button>`);
+        }
+        items.push('<button class="cmd" data-a="stop"><span class="lbl">STOP</span></button>');
+        items.push(`<button class="cmd${this.forceMove ? ' active' : ''}" data-a="force"><span class="lbl">MOVE<br>ONLY</span></button>`);
+        if (workers) items.push('<button class="cmd" data-a="build"><img src="assets/buildings/center.png" alt=""><span class="lbl">BUILD</span></button>');
+        cmds = this.paginate(items, [X]);
       }
     } else if (b) {
       const def = BUILDINGS[b.type];
@@ -668,43 +732,50 @@ export class Game {
       const opts = [];
       if (own && b.built) {
         for (const k of def.trains || []) opts.push(+afford(UNITS[k].cost) + '' + +W.reqMet(pid, UNITS[k].req));
-        for (const k of def.research || []) opts.push(+afford(RESEARCH[k].cost) + '' + P.upgrades[k] + +W.researching(pid, k));
+        for (const k of def.research || []) opts.push(k + (P.research[k] || 0) + +afford(researchCost(k, P.research[k] || 0)) + (W.researchBlock(pid, k) || ''));
       }
-      sig = `B|${b.id}|${b.built}|${b.queue.map((q) => q.u || q.r).join(',')}|${opts.join('')}`;
+      sig = `B|${b.id}|${b.built}|${b.queue.map((q) => q.u || q.r).join(',')}|${opts.join('')}|${this.page}`;
       if (sig === this.panelSig) return this.updateDynamic(ents);
-      const q = b.queue.map((x, i) => `<button class="mini" data-a="unq" data-v="${i}"><img src="${x.u ? `assets/units/${x.u}.png` : 'assets/buildings/lab.png'}" alt="">${i === 0 ? '<b data-bind="qprog" style="background:#6ec6ff"></b>' : ''}</button>`).join('');
+      const q = b.queue.map((x, i) => `<button class="mini" data-a="unq" data-v="${i}">${x.u ? `<img src="assets/units/${x.u}.png" alt="">` : this.researchIcon(x.r) || '<span class="lbl">R</span>'}${i === 0 ? '<b data-bind="qprog" style="background:#6ec6ff"></b>' : ''}</button>`).join('');
       info = `<div class="portrait"><img src="assets/buildings/${b.type}.png" alt=""></div>
         <div class="details"><div class="name">${def.name}</div>
         <div class="sub"><span data-bind="hptext"></span>${own ? '' : ' · ENEMY'}</div>
         <div class="meter"><i data-bind="hp"></i></div>
         ${!b.built ? `<div class="sub">Under construction</div><div class="meter prog"><i data-bind="prog"></i></div>` :
           b.queue.length ? `<div class="queue">${q}</div>` : `<div class="desc">${def.desc}</div>`}</div>`;
+      const items = [];
       if (own && b.built) {
         for (const k of def.trains || []) {
           const d = UNITS[k];
           const locked = !W.reqMet(pid, d.req);
-          cmds += `<button class="cmd${!afford(d.cost) ? ' off' : ''}${locked ? ' locked' : ''}" data-a="train" data-v="${k}"><img src="assets/units/${k}.png" alt=""><span class="lbl">${d.name.toUpperCase()}</span>${this.costHtml(d.cost)}</button>`;
+          items.push(`<button class="cmd${!afford(d.cost) ? ' off' : ''}${locked ? ' locked' : ''}" data-a="train" data-v="${k}"><img src="assets/units/${k}.png" alt="">${this.lbl(d.name.toUpperCase())}${this.costHtml(d.cost)}</button>`);
         }
         for (const k of def.research || []) {
           const r = RESEARCH[k];
-          if (P.upgrades[k]) continue;
-          const busy = W.researching(pid, k);
-          cmds += `<button class="cmd${!afford(r.cost) || busy ? ' off' : ''}" data-a="research" data-v="${k}"><span class="lbl">${r.name.toUpperCase()}${busy ? '<br>…' : ''}</span>${this.costHtml(r.cost)}</button>`;
+          const lvl = P.research[k] || 0;
+          if (lvl >= (r.levels || 1)) continue;
+          const why = W.researchBlock(pid, k);
+          const busy = why === 'Already researching';
+          const cost = researchCost(k, lvl);
+          const icon = this.researchIcon(k);
+          items.push(`<button class="cmd${!afford(cost) || why ? ' off' : ''}${why && !busy ? ' locked' : ''}" data-a="research" data-v="${k}">${icon}${this.lbl(r.name.toUpperCase() + (r.levels > 1 ? ' ' + (lvl + 1) : '') + (busy ? ' …' : ''))}${this.costHtml(cost)}</button>`);
         }
       }
-      if (own && !b.built) cmds += `<button class="cmd" data-a="cancelb"><span class="lbl">CANCEL<br>BUILD</span></button>`;
-      cmds += `<button class="cmd" data-a="desel"><span class="lbl x">✕</span></button>`;
+      const tail = [];
+      if (own && !b.built) tail.push('<button class="cmd" data-a="cancelb"><span class="lbl">CANCEL<br>BUILD</span></button>');
+      tail.push(X);
+      cmds = this.paginate(items, tail);
     } else if (ents.length === 1) {
       const e = ents[0];
-      sig = `O|${e.id}`;
+      sig = `O|${e.id}|${e.form || ''}`;
       if (sig === this.panelSig) return this.updateDynamic(ents);
       if (e.kind === 'res') {
         info = `<div class="portrait"><img src="assets/res/${e.type}.png" alt=""></div><div class="details"><div class="name">${e.type === 'berry' ? 'Berry Bush' : 'Crystal'}</div><div class="sub" data-bind="amount"></div><div class="desc">Select Machop workers and tap here to gather.</div></div>`;
       } else {
-        const def = UNITS[e.type];
-        info = `<div class="portrait"><img src="assets/units/${def.stages[e.stage]}.png" alt=""></div><div class="details"><div class="name">${def.names[e.stage]}</div><div class="sub"><span class="type" style="background:${TYPE_COLORS[def.type]}">${def.type.toUpperCase()}</span>ENEMY</div><div class="meter"><i data-bind="hp"></i></div><div class="desc">${def.desc}</div></div>`;
+        const f = FORMS[e.form];
+        info = `<div class="portrait"><img src="assets/units/${e.form}.png" alt=""></div><div class="details"><div class="name">${f.name}</div><div class="sub"><span class="type" style="background:${TYPE_COLORS[f.type]}">${f.type.toUpperCase()}</span>ENEMY</div><div class="meter"><i data-bind="hp"></i></div><div class="desc">${UNITS[e.type].desc}</div></div>`;
       }
-      cmds = `<button class="cmd" data-a="desel"><span class="lbl x">✕</span></button>`;
+      cmds = X;
     } else {
       sig = 'none';
       if (sig === this.panelSig) return;
@@ -720,22 +791,35 @@ export class Game {
     const info = $('info');
     const e = ents[0];
     if (!e) return;
-    const set = (k, fn) => { const el = info.querySelector(`[data-bind="${k}"]`); if (el) fn(el); };
+    const set = (k, fn, root = info) => { const el = root.querySelector(`[data-bind="${k}"]`); if (el) fn(el); };
     if (e.kind !== 'res') {
       set('hp', (el) => { el.style.width = `${(100 * e.hp) / e.maxHp}%`; el.style.background = e.hp / e.maxHp > 0.5 ? '' : e.hp / e.maxHp > 0.25 ? '#f2d03b' : '#f2503b'; });
       set('hptext', (el) => { el.textContent = `HP ${Math.ceil(e.hp)}/${e.maxHp}`; });
     }
     if (e.kind === 'unit') {
-      const def = UNITS[e.type];
-      const lo = EVO_XP[e.stage] || 0, hi = EVO_XP[e.stage + 1];
-      set('xp', (el) => { el.style.width = hi && e.stage + 1 < def.stages.length ? `${Math.min(100, (100 * (e.xp - lo)) / (hi - lo))}%` : '100%'; });
+      const f = FORMS[e.form];
+      const lo = EVO_XP[f.stage] || 0, hi = EVO_XP[f.stage + 1];
+      set('xp', (el) => { el.style.width = f.next && hi ? `${Math.min(100, (100 * (e.xp - lo)) / (hi - lo))}%` : '100%'; });
       const o = e.order.type;
-      set('status', (el) => { el.textContent = o === 'gather' ? 'GATHERING' : o === 'build' ? 'BUILDING' : o === 'attack' ? 'FIGHTING' : o === 'move' ? 'MOVING' : 'IDLE'; });
+      set('status', (el) => {
+        el.textContent = e.sleep > 0 ? 'ASLEEP' : o === 'gather' ? 'GATHERING' : o === 'build' ? 'BUILDING' : o === 'attack' ? 'FIGHTING' :
+          o === 'cast' ? 'USING MOVE' : o === 'move' ? 'MOVING' : 'IDLE';
+      });
+      // move cooldowns
+      const cmds = $('cmds');
+      for (const el of cmds.querySelectorAll('[data-bind^="cd-"]')) {
+        const k = el.dataset.bind.slice(3);
+        let best = Infinity;
+        for (const u of this.selectedUnits()) if (FORMS[u.form].ability === k) best = Math.min(best, u.acd || 0);
+        const txt = best === Infinity ? '' : best > 0 ? `${Math.ceil(best)}s` : 'READY';
+        if (el.textContent !== txt) el.textContent = txt;
+      }
     }
     if (e.kind === 'building') {
       set('prog', (el) => { el.style.width = `${100 * e.progress}%`; });
       const q = e.queue[0];
-      if (q) set('qprog', (el) => { el.style.width = `${(100 * q.t) / (q.u ? UNITS[q.u].time : RESEARCH[q.r].time)}%`; });
+      const drill = this.world.players[e.owner].research.drill ? 0.75 : 1;
+      if (q) set('qprog', (el) => { el.style.width = `${(100 * q.t) / (q.u ? UNITS[q.u].time * drill : researchTime(q.r, q.lvl || 0))}%`; });
     }
     if (e.kind === 'res') set('amount', (el) => { el.textContent = `${e.amount} left`; });
     for (const el of info.querySelectorAll('[data-hpid]')) {
@@ -753,34 +837,62 @@ export class Game {
     const W = this.world, pid = this.pid;
     const units = this.selectedUnits();
     const b = this.selectedBuilding();
+    const fail = (msg) => { this.toast(msg, 'warn'); sfx('error'); };
     switch (a) {
       case 'only': this.select([+v]); break;
+      case 'more': this.page++; break;
       case 'stop': this.issue({ c: 'stop', ids: units.map((u) => u.id) }); sfx('order'); break;
-      case 'force': this.forceMove = !this.forceMove; if (this.forceMove) this.toast('Tap where to move (ignoring enemies)'); break;
-      case 'build': this.buildMenu = true; break;
-      case 'back': this.buildMenu = false; this.cancelPlacement(); break;
+      case 'force': this.forceMove = !this.forceMove; this.casting = null; if (this.forceMove) this.toast('Tap where to move (ignoring enemies)'); break;
+      case 'build': this.buildMenu = true; this.page = 0; break;
+      case 'back': this.buildMenu = false; this.page = 0; this.cancelPlacement(); break;
       case 'desel': this.select([]); break;
       case 'place': {
         const d = BUILDINGS[v];
-        if (!W.reqMet(pid, d.req)) { this.toast(`Requires ${BUILDINGS[d.req].name}`, 'warn'); sfx('error'); break; }
-        if (!W.canAfford(pid, d.cost)) { this.toast('Not enough resources', 'warn'); sfx('error'); break; }
+        if (!W.reqMet(pid, d.req)) { fail(`Requires ${BUILDINGS[d.req].name}`); break; }
+        if (!W.canAfford(pid, d.cost)) { fail('Not enough resources'); break; }
         this.startPlacement(v);
         break;
       }
       case 'train': {
         if (!b) break;
         const d = UNITS[v];
-        if (!W.reqMet(pid, d.req)) { this.toast(`Requires ${BUILDINGS[d.req].name}`, 'warn'); sfx('error'); break; }
-        if (!W.canAfford(pid, d.cost)) { this.toast('Not enough resources', 'warn'); sfx('error'); break; }
+        if (!W.reqMet(pid, d.req)) { fail(`Requires ${BUILDINGS[d.req].name}`); break; }
+        if (d.limit && W.unitCount(pid, v) >= d.limit) { fail(`Only ${d.limit} ${d.name} allowed`); break; }
+        if (!W.canAfford(pid, d.cost)) { fail('Not enough resources'); break; }
         const P = W.players[pid];
-        if (P.pop + d.pop > P.cap) { this.toast('Need more supply — build a Poké Mart', 'warn'); sfx('error'); break; }
+        if (P.pop + d.pop > P.cap) { fail('Need more supply — build a Poké Mart'); break; }
         this.issue({ c: 'train', id: b.id, type: v });
         sfx('train');
         break;
       }
-      case 'research':
-        if (b) { this.issue({ c: 'research', id: b.id, key: v }); sfx('train'); }
+      case 'research': {
+        if (!b) break;
+        const why = W.researchBlock(pid, v);
+        if (why) { fail(why); break; }
+        if (!W.canAfford(pid, researchCost(v, W.rlevel(pid, v)))) { fail('Not enough resources'); break; }
+        this.toast(RESEARCH[v].desc);
+        this.issue({ c: 'research', id: b.id, key: v });
+        sfx('train');
         break;
+      }
+      case 'evolve': {
+        const u = units[0];
+        if (u) { this.issue({ c: 'evolve', id: u.id, to: v }); sfx('evolve'); }
+        break;
+      }
+      case 'cast': {
+        const ab = ABILITIES[v];
+        if (!W.rlevel(pid, ab.research)) {
+          const at = Object.keys(BUILDINGS).find((k) => (BUILDINGS[k].research || []).includes(ab.research));
+          fail(`Research ${ab.name} at the ${BUILDINGS[at].name} first`);
+          break;
+        }
+        if (!units.some((u) => FORMS[u.form].ability === v && (u.acd || 0) <= 0)) { fail(`${ab.name} is recharging`); break; }
+        this.casting = this.casting === v ? null : v;
+        this.forceMove = false;
+        if (this.casting) this.toast(`Tap where to use ${ab.name}`);
+        break;
+      }
       case 'unq': if (b) { this.issue({ c: 'cancel', id: b.id, i: +v }); sfx('order'); } break;
       case 'cancelb': if (b) { this.issue({ c: 'cancel', id: b.id }); this.select([]); } break;
     }

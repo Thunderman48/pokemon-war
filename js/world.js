@@ -1,7 +1,7 @@
 // Authoritative game simulation. DOM-free so it can run headless (tests) or on the host.
 import {
-  TILE, TICK, MAX_POP, UNITS, BUILDINGS, RESEARCH, RESOURCES, EVO_XP, EVO_MULT,
-  UNIT_KEYS, BUILDING_KEYS, RES_KEYS, effectiveness,
+  TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ABILITIES, EVO_XP, EVO_MULT,
+  UNIT_KEYS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, effectiveness, researchCost, researchTime,
 } from './config.js';
 import { generateMap, tileBlocked } from './map.js';
 import { Pathfinder } from './path.js';
@@ -17,16 +17,25 @@ function circle(r) {
   return circleCache.get(r);
 }
 
-export function unitStats(u, upgrades) {
+export function isFlying(u) {
+  return u.kind === 'unit' && !!(UNITS[u.type].flying || FORMS[u.form].flying);
+}
+
+// Effective stats for a unit given its form and its owner's research.
+export function unitStats(u, research) {
   const d = UNITS[u.type];
-  const m = EVO_MULT[u.stage || 0];
+  const f = FORMS[u.form];
+  const m = f.mult || EVO_MULT[f.stage];
+  const r = research || {};
   return {
     maxHp: Math.round(d.hp * m.hp),
-    dmg: d.dmg * m.dmg * (1 + 0.2 * ((upgrades && upgrades.xattack) || 0)),
-    range: (d.range >= 1 ? d.range + m.range : d.range) * TILE,
-    speed: d.speed * TILE,
-    sight: d.sight + (u.stage || 0),
-    cd: d.cd,
+    dmg: d.dmg * m.dmg * (1 + 0.15 * (r.attack || 0)),
+    range: (d.range >= 1 ? d.range + (m.range || 0) : d.range) * TILE,
+    speed: d.speed * (m.speed || 1) * TILE,
+    sight: d.sight + f.stage,
+    cd: d.cd * (m.cd || 1),
+    proj: f.proj || d.proj,
+    type: f.type,
   };
 }
 
@@ -44,8 +53,8 @@ export class World {
     this.nextId = 1;
     this.players = players.map((p, i) => ({
       id: i, name: p.name || `Player ${i + 1}`, b: 250, c: 50, pop: 0, cap: 0,
-      upgrades: { xattack: 0, xdefend: 0 }, gatherMult: p.gatherMult || 1, alive: true,
-      stats: { trained: 0, killed: 0, lost: 0, gathered: 0 }, lastAlert: -99,
+      research: {}, gatherMult: p.gatherMult || 1, alive: true, ai: !!p.ai,
+      stats: { trained: 0, killed: 0, lost: 0, gathered: 0 }, lastAlert: -99, hinted: {},
     }));
     this.time = 0; this.tick = 0; this.winner = -1;
     this.fx = [];
@@ -55,6 +64,7 @@ export class World {
     this.pf = new Pathfinder(w, h, (i) => this.terrainBlocked[i] === 1 || this.occ[i] !== 0);
     this.hash = new Map();
     this.projectiles = [];
+    this.effects = [];
     this.pathBudget = 0;
     this.version = 0; // bumps when buildings/resources change (renderer cache)
     if (sim) this.setup();
@@ -85,11 +95,11 @@ export class World {
   addUnit(type, owner, x, y, id) {
     const def = UNITS[type];
     const u = {
-      id: id || this.nextId++, kind: 'unit', type, owner, x, y, px: x, py: y,
-      stage: 0, xp: 0, hp: def.hp, maxHp: def.hp, radius: def.radius,
+      id: id || this.nextId++, kind: 'unit', type, form: type, owner, x, y, px: x, py: y,
+      xp: 0, hp: def.hp, maxHp: def.hp, radius: def.radius,
       order: { type: 'idle' }, path: null, cd: 0, carry: { kind: null, amt: 0 },
       face: owner === 0 ? 1 : -1, moving: false, anim: 0, scanT: Math.random() * 0.5, repathT: 0,
-      gatherT: 0, stuckT: 0, lastX: x, lastY: y,
+      gatherT: 0, stuckT: 0, lastX: x, lastY: y, sleep: 0, acd: 0, evoReady: false,
     };
     this.ents.set(u.id, u);
     return u;
@@ -97,11 +107,12 @@ export class World {
 
   addBuilding(type, owner, tx, ty, built, id) {
     const def = BUILDINGS[type];
+    const maxHp = Math.round(def.hp * (this.rlevel(owner, 'fortify') ? 1.5 : 1));
     const b = {
       id: id || this.nextId++, kind: 'building', type, owner, tx, ty, w: def.w, h: def.h,
       x: (tx + def.w / 2) * TILE, y: (ty + def.h / 2) * TILE, px: 0, py: 0,
       radius: (Math.max(def.w, def.h) * TILE) / 2,
-      hp: built ? def.hp : def.hp * 0.1, maxHp: def.hp, built, progress: built ? 1 : 0,
+      hp: built ? maxHp : maxHp * 0.1, maxHp, built, progress: built ? 1 : 0,
       queue: [], rally: null, cd: 0, healT: 0,
     };
     b.px = b.x; b.py = b.y;
@@ -135,12 +146,20 @@ export class World {
   }
 
   // ------------------------------------------------------------------ queries
+  rlevel(pid, key) { const p = this.players[pid]; return (p && p.research[key]) || 0; }
+  stats(u) { return unitStats(u, this.players[u.owner] && this.players[u.owner].research); }
+
   blockedTile(tx, ty) {
     if (tx < 0 || ty < 0 || tx >= this.w || ty >= this.h) return true;
     const i = ty * this.w + tx;
     return this.terrainBlocked[i] === 1 || this.occ[i] !== 0;
   }
   blockedAt(x, y) { return this.blockedTile(Math.floor(x / TILE), Math.floor(y / TILE)); }
+  // flyers only need to stay on the map
+  blockedFor(u, x, y) {
+    if (isFlying(u)) return x < 4 || y < 4 || x > this.w * TILE - 4 || y > this.h * TILE - 4;
+    return this.blockedAt(x, y);
+  }
 
   isVisible(pid, e) {
     if (pid < 0) return true;
@@ -160,6 +179,13 @@ export class World {
     return Math.hypot(dx, dy) - u.radius;
   }
 
+  // melee attackers can't reach flying Pokémon
+  canHit(a, t) {
+    if (!isFlying(t)) return true;
+    if (a.kind === 'building') return true;
+    return UNITS[a.type].range >= 1;
+  }
+
   unitsOf(pid) { const out = []; for (const e of this.ents.values()) if (e.kind === 'unit' && e.owner === pid) out.push(e); return out; }
   buildingsOf(pid) { const out = []; for (const e of this.ents.values()) if (e.kind === 'building' && e.owner === pid) out.push(e); return out; }
 
@@ -170,6 +196,28 @@ export class World {
   reqMet(pid, req) { return !req || this.hasBuilt(pid, req); }
   canAfford(pid, cost) { const p = this.players[pid]; return p.b >= (cost.b || 0) && p.c >= (cost.c || 0); }
   pay(pid, cost, sign = 1) { const p = this.players[pid]; p.b -= sign * (cost.b || 0); p.c -= sign * (cost.c || 0); }
+
+  // Can this research be started now? Returns null if OK, otherwise a reason.
+  researchBlock(pid, key) {
+    const r = RESEARCH[key];
+    if (!r) return 'Unknown research';
+    const lvl = this.rlevel(pid, key);
+    if (lvl >= (r.levels || 1)) return 'Already researched';
+    if (this.researching(pid, key)) return 'Already researching';
+    if (r.req && !this.rlevel(pid, r.req)) return `Research ${RESEARCH[r.req].name} first`;
+    if (r.reqB && !this.hasBuilt(pid, r.reqB)) return `Requires ${BUILDINGS[r.reqB].name}`;
+    return null;
+  }
+
+  unitCount(pid, type) {
+    let n = 0;
+    for (const e of this.ents.values()) {
+      if (e.owner !== pid) continue;
+      if (e.kind === 'unit' && e.type === type) n++;
+      if (e.kind === 'building') n += e.queue.filter((q) => q.u === type).length;
+    }
+    return n;
+  }
 
   notify(pid, text, kind = 'info', x, y) {
     if (pid >= 0 && pid < this.notes.length) {
@@ -210,9 +258,9 @@ export class World {
         if (this.terrainBlocked[i] || this.occ[i]) return false;
         if (pid >= 0 && !this.players[pid].noFog && !this.explored[pid][i]) return false;
       }
-    // keep enemy units from being built on top of
+    // keep enemy ground units from being built on top of
     for (const e of this.ents.values()) {
-      if (e.kind !== 'unit' || e.owner === pid) continue;
+      if (e.kind !== 'unit' || e.owner === pid || isFlying(e)) continue;
       if (e.x > tx * TILE - 4 && e.x < (tx + def.w) * TILE + 4 && e.y > ty * TILE - 4 && e.y < (ty + def.h) * TILE + 4) return false;
     }
     return true;
@@ -226,7 +274,9 @@ export class World {
       if (!p) continue;
       if (e.kind === 'unit') p.pop += UNITS[e.type].pop;
       else if (e.kind === 'building') {
-        if (e.built) p.cap += BUILDINGS[e.type].pop || 0;
+        let pop = BUILDINGS[e.type].pop || 0;
+        if (e.type === 'mart' && p.research.martplus) pop = 15;
+        if (e.built) p.cap += pop;
         for (const q of e.queue) if (q.u) p.pop += UNITS[q.u].pop;
       }
     }
@@ -257,7 +307,8 @@ export class World {
             if (worker) this.setGather(u, t);
             else { u.order = { type: 'move', x: t.x, y: t.y + TILE, attack: true }; this.clearPath(u); }
           } else if (t.owner !== pid) {
-            u.order = { type: 'attack', target: t.id }; this.clearPath(u);
+            if (this.canHit(u, t)) { u.order = { type: 'attack', target: t.id }; this.clearPath(u); }
+            else { u.order = { type: 'move', x: t.x, y: t.y, attack: true }; this.clearPath(u); }
           } else if (t.kind === 'building' && worker && !t.built) {
             u.order = { type: 'build', target: t.id }; this.clearPath(u);
           } else if (t.kind === 'building' && worker && u.carry.amt > 0 && BUILDINGS[t.type].dropoff) {
@@ -290,6 +341,7 @@ export class World {
         if (!b || !b.built || !def || !(BUILDINGS[b.type].trains || []).includes(cmd.type)) return;
         if (b.queue.length >= 5) return this.notify(pid, 'Queue is full', 'warn');
         if (!this.reqMet(pid, def.req)) return this.notify(pid, `Requires ${BUILDINGS[def.req].name}`, 'warn');
+        if (def.limit && this.unitCount(pid, cmd.type) >= def.limit) return this.notify(pid, `Only ${def.limit} ${def.name} allowed`, 'warn');
         if (!this.canAfford(pid, def.cost)) return this.notify(pid, 'Not enough resources', 'warn');
         const p = this.players[pid];
         if (p.pop + def.pop > p.cap) return this.notify(pid, 'Need more supply — build a Poké Mart', 'warn');
@@ -300,12 +352,15 @@ export class World {
       }
       case 'research': {
         const b = ownB(cmd.id);
-        const r = RESEARCH[cmd.key];
-        if (!b || !b.built || !r || !(BUILDINGS[b.type].research || []).includes(cmd.key)) return;
-        if (this.players[pid].upgrades[cmd.key] || this.researching(pid, cmd.key)) return;
-        if (!this.canAfford(pid, r.cost)) return this.notify(pid, 'Not enough resources', 'warn');
-        this.pay(pid, r.cost);
-        b.queue.push({ r: cmd.key, t: 0 });
+        if (!b || !b.built || !(BUILDINGS[b.type].research || []).includes(cmd.key)) return;
+        const why = this.researchBlock(pid, cmd.key);
+        if (why) return this.notify(pid, why, 'warn');
+        if (b.queue.length >= 5) return this.notify(pid, 'Queue is full', 'warn');
+        const lvl = this.rlevel(pid, cmd.key);
+        const cost = researchCost(cmd.key, lvl);
+        if (!this.canAfford(pid, cost)) return this.notify(pid, 'Not enough resources', 'warn');
+        this.pay(pid, cost);
+        b.queue.push({ r: cmd.key, t: 0, lvl });
         break;
       }
       case 'cancel': {
@@ -319,7 +374,7 @@ export class World {
         const i = cmd.i ?? b.queue.length - 1;
         const q = b.queue[i];
         if (!q) return;
-        this.pay(pid, q.u ? UNITS[q.u].cost : RESEARCH[q.r].cost, -1);
+        this.pay(pid, q.u ? UNITS[q.u].cost : researchCost(q.r, q.lvl), -1);
         b.queue.splice(i, 1);
         this.recount();
         break;
@@ -327,6 +382,26 @@ export class World {
       case 'rally': {
         const b = ownB(cmd.id);
         if (b) b.rally = { x: cmd.x, y: cmd.y, target: cmd.target || 0 };
+        break;
+      }
+      case 'evolve': {
+        const u = own([cmd.id])[0];
+        if (!u || !u.evoReady) return;
+        const opt = (FORMS[u.form].next || []).find((n) => n.to === cmd.to);
+        if (!opt || !this.rlevel(pid, opt.r)) return;
+        this.evolve(u, cmd.to);
+        break;
+      }
+      case 'cast': {
+        const ab = ABILITIES[cmd.key];
+        if (!ab || !this.rlevel(pid, ab.research)) return;
+        const cands = own(cmd.ids).filter((u) => FORMS[u.form].ability === cmd.key && u.acd <= 0 && u.sleep <= 0);
+        if (!cands.length) return this.notify(pid, `${ab.name} is not ready`, 'warn');
+        cands.sort((a, b) => Math.hypot(a.x - cmd.x, a.y - cmd.y) - Math.hypot(b.x - cmd.x, b.y - cmd.y));
+        const u = cands[0];
+        const prev = u.order.type === 'cast' ? u.order.prev : u.order;
+        u.order = { type: 'cast', key: cmd.key, x: cmd.x, y: cmd.y, prev };
+        this.clearPath(u);
         break;
       }
       case 'surrender':
@@ -383,6 +458,14 @@ export class World {
   // Ensure u has a path toward target (entity or point). Returns false if waiting for path budget.
   ensurePath(u, key, target) {
     if (u.pathKey === key && u.path) return true;
+    if (isFlying(u)) {
+      // flyers go straight there
+      const W = this.w * TILE, H = this.h * TILE;
+      u.path = [{ x: Math.max(6, Math.min(W - 6, target.x)), y: Math.max(6, Math.min(H - 6, target.y)) }];
+      u.pathKey = key;
+      u.pathComplete = true;
+      return true;
+    }
     // can't repath yet: keep following the old path if we have one
     if (u.repathT > 0 || this.pathBudget <= 0) return !!(u.path && u.path.length);
     this.pathBudget--;
@@ -435,10 +518,10 @@ export class World {
         u.x = wp.x; u.y = wp.y; budget -= d; u.path.shift();
       } else {
         const nx = u.x + (dx / d) * budget, ny = u.y + (dy / d) * budget;
-        if (this.blockedAt(nx, ny) && !this.blockedAt(u.x, u.y)) {
+        if (this.blockedFor(u, nx, ny) && !this.blockedFor(u, u.x, u.y)) {
           // something appeared in the way: try sliding, then repath
-          if (!this.blockedAt(nx, u.y)) u.x = nx;
-          else if (!this.blockedAt(u.x, ny)) u.y = ny;
+          if (!this.blockedFor(u, nx, u.y)) u.x = nx;
+          else if (!this.blockedFor(u, u.x, ny)) u.y = ny;
           else { u.path = null; u.pathKey = null; }
         } else { u.x = nx; u.y = ny; }
         budget = 0;
@@ -455,10 +538,10 @@ export class World {
     if (!this.ensurePath(u, key, t)) { u.moving = false; return false; }
     if (this.step(u, dt, st.speed)) {
       // path ended but not in reach: walk directly if close, else repath later
-      if (t.kind === 'unit' || this.edgeDist(u, t) < TILE) {
+      if (t.kind === 'unit' || this.edgeDist(u, t) < TILE || isFlying(u)) {
         const dx = t.x - u.x, dy = t.y - u.y, d = Math.hypot(dx, dy) || 1;
         const nx = u.x + (dx / d) * st.speed * dt, ny = u.y + (dy / d) * st.speed * dt;
-        if (!this.blockedAt(nx, ny)) { u.x = nx; u.y = ny; u.moving = true; }
+        if (!this.blockedFor(u, nx, ny)) { u.x = nx; u.y = ny; u.moving = true; }
         u.face = dx > 0 ? 1 : -1;
       }
       u.pathKey = null; u.path = null;
@@ -480,6 +563,7 @@ export class World {
       else if (e.kind === 'building') this.updateBuilding(e, dt);
     }
     this.updateProjectiles(dt);
+    this.updateEffects(dt);
     this.separate();
     if (this.tick % 4 === 0) this.updateFog();
     if (this.tick % 10 === 0) { this.recount(); this.checkWin(); }
@@ -510,7 +594,7 @@ export class World {
     let best = null, bs = Infinity;
     const pid = u.owner;
     this.nearUnits(u.x, u.y, radius, (e) => {
-      if (e.owner === pid || !this.ents.has(e.id) || !this.isVisible(pid, e)) return;
+      if (e.owner === pid || !this.ents.has(e.id) || !this.isVisible(pid, e) || !this.canHit(u, e)) return;
       const d = Math.hypot(e.x - u.x, e.y - u.y);
       if (d > radius) return;
       const s = d + (UNITS[e.type].worker ? 40 : 0);
@@ -528,14 +612,16 @@ export class World {
 
   updateUnit(u, dt) {
     const def = UNITS[u.type];
-    const st = unitStats(u, this.players[u.owner].upgrades);
+    const st = this.stats(u);
     if (u.cd > 0) u.cd -= dt;
+    if (u.acd > 0) u.acd -= dt;
     if (u.anim > 0) u.anim -= dt;
     if (u.repathT > 0) u.repathT -= dt;
     u.scanT -= dt;
     u.moving = false;
+    if (u.sleep > 0) { u.sleep -= dt; return; }
     // pushed into a building footprint? pop out
-    if (this.blockedAt(u.x, u.y)) {
+    if (!isFlying(u) && this.blockedAt(u.x, u.y)) {
       const f = this.nearestFree(Math.floor(u.x / TILE), Math.floor(u.y / TILE), 5);
       if (f) { u.x = f.x * TILE + TILE / 2; u.y = f.y * TILE + TILE / 2; u.path = null; u.pathKey = null; }
     }
@@ -566,7 +652,7 @@ export class World {
       }
       case 'attack': {
         const t = this.ents.get(o.target);
-        const lost = !t || t.owner === u.owner || (t.kind === 'unit' && !this.isVisible(u.owner, t));
+        const lost = !t || t.owner === u.owner || (t.kind === 'unit' && !this.isVisible(u.owner, t)) || !this.canHit(u, t);
         const leash = o.auto && t && o.home && Math.hypot(t.x - o.home.x, t.y - o.home.y) > (st.sight + 4) * TILE;
         if (lost || leash) {
           if (o.resume) { u.order = o.resume; this.clearPath(u); }
@@ -592,6 +678,21 @@ export class World {
           if (u.cd <= 0) { this.strike(u, t, st); u.cd = st.cd; }
         }
         this.checkStuck(u, dt, o);
+        break;
+      }
+      case 'cast': {
+        const ab = ABILITIES[o.key];
+        if (u.acd > 0) { u.order = o.prev || { type: 'idle' }; this.clearPath(u); break; }
+        if (Math.hypot(o.x - u.x, o.y - u.y) <= ab.range * TILE) {
+          this.performAbility(u, o.key, o.x, o.y);
+          u.acd = ab.cd;
+          u.anim = 0.4;
+          u.order = o.prev && o.prev.type !== 'cast' ? o.prev : { type: 'idle' };
+          this.clearPath(u);
+        } else {
+          if (this.ensurePath(u, 'c' + o.x + ',' + o.y, o) && this.step(u, dt, st.speed)) u.pathKey = null;
+          this.checkStuck(u, dt, o);
+        }
         break;
       }
       case 'gather': this.updateGather(u, dt, st); break;
@@ -635,6 +736,9 @@ export class World {
   updateGather(u, dt, st) {
     const o = u.order;
     const rdef = RESOURCES[o.kind];
+    const p = this.players[u.owner];
+    const per = Math.round(rdef.per * (p.research.bigbag ? 1.5 : 1));
+    const time = rdef.time * (1 - 0.2 * (p.research.harvest || 0));
     if (o.phase !== 'back') {
       let r = this.ents.get(o.res);
       if (!r || r.kind !== 'res') {
@@ -642,15 +746,15 @@ export class World {
         if (!r) { if (u.carry.amt > 0) o.phase = 'back'; else u.order = { type: 'idle' }; return; }
         o.res = r.id; this.clearPath(u);
       }
-      if (u.carry.amt >= rdef.per) { o.phase = 'back'; this.clearPath(u); return; }
+      if (u.carry.amt >= per) { o.phase = 'back'; this.clearPath(u); return; }
       if (this.approach(u, r, 6, dt, st)) {
         u.face = r.x > u.x ? 1 : -1;
         u.gatherT += dt;
         u.anim = 0.2;
         o.phase = 'mine';
-        if (u.gatherT >= rdef.time) {
+        if (u.gatherT >= time) {
           u.gatherT = 0;
-          const amt = Math.min(rdef.per, r.amount);
+          const amt = Math.min(per, r.amount);
           r.amount -= amt;
           u.carry = { kind: o.kind, amt };
           if (r.amount <= 0) this.remove(r);
@@ -664,7 +768,6 @@ export class World {
       if (!d) { u.order = { type: 'idle' }; return; }
       if (this.approach(u, d, 6, dt, st)) {
         if (u.carry.amt > 0) {
-          const p = this.players[u.owner];
           const amt = Math.round(u.carry.amt * p.gatherMult);
           if (u.carry.kind === 'berry') p.b += amt; else p.c += amt;
           p.stats.gathered += amt;
@@ -685,14 +788,18 @@ export class World {
 
   strike(u, t, st) {
     u.anim = 0.25;
-    const def = UNITS[u.type] || BUILDINGS[u.type];
-    let dmg = st.dmg * effectiveness(def.type, t.kind === 'unit' ? UNITS[t.type].type : 'building');
+    const isB = u.kind === 'building';
+    const def = isB ? BUILDINGS[u.type] : UNITS[u.type];
+    const atkType = isB ? def.type : st.type;
+    let dmg = st.dmg * effectiveness(atkType, t.kind === 'unit' ? FORMS[t.form].type : 'building');
     if (t.kind === 'building' && def.siege) dmg *= def.siege;
-    if (def.proj) {
+    const proj = isB ? def.proj : st.proj;
+    if (proj) {
       const d = Math.hypot(t.x - u.x, t.y - u.y);
-      const dur = Math.max(0.12, d / 260);
-      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur });
-      this.fx.push({ k: 'p', x1: u.x | 0, y1: (u.y - 6) | 0, x2: t.x | 0, y2: (t.y - 4) | 0, d: dur, s: def.proj });
+      const dur = Math.max(0.12, d / (proj === 'breath' ? 200 : 260));
+      const lift = isFlying(u) ? 12 : 6;
+      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y });
+      this.fx.push({ k: 'p', x1: u.x | 0, y1: (u.y - lift) | 0, x2: t.x | 0, y2: (t.y - (isFlying(t) ? 12 : 4)) | 0, d: dur, s: proj });
     } else {
       this.fx.push({ k: 'hit', x: ((u.x + t.x) / 2) | 0, y: ((u.y + t.y) / 2 - 4) | 0 });
       this.damage(t, dmg, u.id, u.owner);
@@ -703,16 +810,67 @@ export class World {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.left -= dt;
-      if (p.left <= 0) {
-        this.projectiles.splice(i, 1);
-        const t = this.ents.get(p.t);
-        if (t && t.owner !== p.owner) this.damage(t, p.dmg, p.src, p.owner);
+      if (p.left > 0) continue;
+      this.projectiles.splice(i, 1);
+      const t = this.ents.get(p.t);
+      if (p.splash) {
+        const cx = t ? t.x : p.x, cy = t ? t.y : p.y, r = p.splash * TILE;
+        this.fx.push({ k: 'boom', x: cx | 0, y: cy | 0, r: r | 0 });
+        if (t && t.kind === 'building' && t.owner !== p.owner) this.damage(t, p.dmg, p.src, p.owner);
+        this.nearUnits(cx, cy, r + 12, (e) => {
+          if (e.owner === p.owner || !this.ents.has(e.id)) return;
+          if (Math.hypot(e.x - cx, e.y - cy) > r + e.radius) return;
+          const dmg = p.dmg * effectiveness(p.atkType, FORMS[e.form].type) / effectiveness(p.atkType, t && t.kind === 'unit' ? FORMS[t.form].type : 'building');
+          this.damage(e, e === t ? p.dmg : dmg * 0.7, p.src, p.owner);
+        });
+      } else if (t && t.owner !== p.owner) this.damage(t, p.dmg, p.src, p.owner);
+    }
+  }
+
+  performAbility(u, key, x, y) {
+    const ab = ABILITIES[key];
+    const stage = FORMS[u.form].stage;
+    const r = ab.radius * TILE;
+    if (key === 'thunder') {
+      const dmg = ab.dmg * (1 + 0.5 * stage) * (1 + 0.15 * this.rlevel(u.owner, 'attack'));
+      this.effects.push({ k: 'thunder', x, y, r, t: ab.delay, owner: u.owner, src: u.id, dmg });
+      this.fx.push({ k: 'zap', x: x | 0, y: y | 0, r: r | 0 });
+    } else if (key === 'heal') {
+      const amt = ab.amount * (1 + 0.3 * stage);
+      this.nearUnits(x, y, r + 8, (e) => {
+        if (e.owner !== u.owner || Math.hypot(e.x - x, e.y - y) > r + e.radius) return;
+        e.hp = Math.min(e.maxHp, e.hp + amt);
+      });
+      this.fx.push({ k: 'healp', x: x | 0, y: y | 0, r: r | 0 });
+    } else if (key === 'sleep') {
+      const dur = ab.dur + stage;
+      this.nearUnits(x, y, r + 8, (e) => {
+        if (e.owner === u.owner || Math.hypot(e.x - x, e.y - y) > r + e.radius) return;
+        e.sleep = UNITS[e.type].limit ? dur / 2 : dur; // legendaries resist
+        e.path = null; e.pathKey = null;
+      });
+      this.fx.push({ k: 'sleep', x: x | 0, y: y | 0, r: r | 0 });
+    }
+  }
+
+  updateEffects(dt) {
+    for (let i = this.effects.length - 1; i >= 0; i--) {
+      const e = this.effects[i];
+      e.t -= dt;
+      if (e.t > 0) continue;
+      this.effects.splice(i, 1);
+      if (e.k === 'thunder') {
+        this.fx.push({ k: 'bolt', x: e.x | 0, y: e.y | 0, r: e.r | 0 });
+        this.nearUnits(e.x, e.y, e.r + 12, (t) => {
+          if (t.owner === e.owner || !this.ents.has(t.id) || Math.hypot(t.x - e.x, t.y - e.y) > e.r + t.radius) return;
+          this.damage(t, e.dmg * effectiveness('electric', FORMS[t.form].type), e.src, e.owner);
+        });
       }
     }
   }
 
   damage(t, dmg, srcId, srcOwner) {
-    if (t.kind === 'unit') dmg *= 1 - 0.2 * this.players[t.owner].upgrades.xdefend;
+    if (t.kind === 'unit') dmg *= 1 - 0.12 * this.rlevel(t.owner, 'defense');
     t.hp -= dmg;
     const src = this.ents.get(srcId);
     if (src && src.kind === 'unit') {
@@ -725,10 +883,7 @@ export class World {
       this.notify(t.owner, t.kind === 'building' ? 'Your base is under attack!' : 'Your Pokémon are under attack!', 'alert', t.x, t.y);
     }
     // retaliate
-    if (t.kind === 'unit' && src && t.order.type === 'idle' && !UNITS[t.type].worker) {
-      t.order = { type: 'attack', target: src.id, auto: true, home: { x: t.x, y: t.y } };
-    }
-    if (t.kind === 'unit' && src && UNITS[t.type].worker && t.order.type === 'idle') {
+    if (t.kind === 'unit' && src && t.order.type === 'idle' && this.canHit(t, src)) {
       t.order = { type: 'attack', target: src.id, auto: true, home: { x: t.x, y: t.y } };
     }
     if (t.hp <= 0) {
@@ -746,20 +901,48 @@ export class World {
     return n >= 3;
   }
 
+  // Evolve when XP is reached AND the evolution has been researched.
   tryEvolve(u) {
-    const def = UNITS[u.type];
-    const next = u.stage + 1;
-    if (next >= def.stages.length || u.xp < EVO_XP[next]) return;
-    if (next >= 2 && !this.hasBuilt(u.owner, 'lab')) return;
-    const before = def.names[u.stage];
+    const f = FORMS[u.form];
+    if (!f.next || u.evoReady) return;
+    const need = EVO_XP[f.stage + 1];
+    if (u.xp < need) return;
+    const p = this.players[u.owner];
+    const ready = f.next.filter((n) => p.research[n.r]);
+    if (!ready.length) {
+      // teach the player once per research
+      const r = f.next[0].r;
+      if (!p.hinted[r]) {
+        p.hinted[r] = 1;
+        const at = Object.keys(BUILDINGS).find((k) => (BUILDINGS[k].research || []).includes(r));
+        this.notify(u.owner, `${f.name} is ready to evolve! Research ${RESEARCH[r].name} at the ${BUILDINGS[at].name}.`, 'evo', u.x, u.y);
+      }
+      return;
+    }
+    if (f.next[0].choice) {
+      if (p.ai) this.evolve(u, ready[Math.floor(Math.random() * ready.length)].to);
+      else {
+        u.evoReady = true;
+        this.notify(u.owner, `${f.name} can evolve! Select it and choose an evolution.`, 'evo', u.x, u.y);
+      }
+      return;
+    }
+    this.evolve(u, ready[0].to);
+  }
+
+  evolve(u, to) {
+    const before = FORMS[u.form].name;
     const ratio = u.hp / u.maxHp;
-    u.stage = next;
-    const st = unitStats(u, null);
+    u.form = to;
+    u.evoReady = false;
+    const st = this.stats(u);
     u.maxHp = st.maxHp;
     u.hp = Math.min(u.maxHp, u.maxHp * ratio + u.maxHp * 0.25);
-    u.radius = def.radius + next * 1.5;
+    u.radius = UNITS[u.type].radius + FORMS[to].stage * 1.5;
+    this.clearPath(u);
     this.fx.push({ k: 'evo', x: u.x | 0, y: u.y | 0, id: u.id });
-    this.notify(u.owner, `${before} evolved into ${def.names[u.stage]}!`, 'evo', u.x, u.y);
+    this.notify(u.owner, `${before} evolved into ${FORMS[to].name}!`, 'evo', u.x, u.y);
+    this.tryEvolve(u);
   }
 
   completeBuilding(b) {
@@ -769,8 +952,19 @@ export class World {
     this.recount();
     this.notify(b.owner, `${BUILDINGS[b.type].name} complete`, 'done', b.x, b.y);
     this.fx.push({ k: 'done', x: b.x | 0, y: b.y | 0 });
-    // Lab unlocks final evolutions for units that already have the XP
-    if (b.type === 'lab') for (const u of this.unitsOf(b.owner)) this.tryEvolve(u);
+  }
+
+  completeResearch(pid, key) {
+    const p = this.players[pid];
+    p.research[key] = (p.research[key] || 0) + 1;
+    const r = RESEARCH[key];
+    this.notify(pid, `${r.name}${r.levels > 1 ? ' ' + p.research[key] : ''} researched!`, 'done');
+    if (key === 'fortify') {
+      for (const b of this.buildingsOf(pid)) { b.maxHp = Math.round(b.maxHp * 1.5); b.hp *= 1.5; }
+    }
+    if (key === 'martplus') this.recount();
+    // Pokémon that already have the XP evolve right away
+    for (const u of this.unitsOf(pid)) this.tryEvolve(u);
   }
 
   spawnSpot(b, n = 0) {
@@ -787,13 +981,15 @@ export class World {
   updateBuilding(b, dt) {
     if (!b.built) return;
     const def = BUILDINGS[b.type];
+    const p = this.players[b.owner];
     if (def.dmg) {
       b.cd -= dt;
       if (b.cd <= 0) {
-        const fake = { x: b.x, y: b.y, radius: 0, owner: b.owner };
-        const t = this.findEnemy(fake, def.range * TILE, false);
+        const lvl = p.research.towerup || 0;
+        const fake = { x: b.x, y: b.y, radius: 0, owner: b.owner, kind: 'building' };
+        const t = this.findEnemy(fake, (def.range + lvl) * TILE, false);
         if (t) {
-          const st = { dmg: def.dmg * (1 + 0.2 * this.players[b.owner].upgrades.xattack) };
+          const st = { dmg: def.dmg * (1 + 0.4 * lvl) * (1 + 0.15 * (p.research.attack || 0)) };
           this.strike(b, t, st);
           b.cd = def.cd;
         }
@@ -816,11 +1012,11 @@ export class World {
     if (q.u) {
       const ud = UNITS[q.u];
       q.t += dt;
-      if (q.t >= ud.time) {
+      if (q.t >= ud.time * (p.research.drill ? 0.75 : 1)) {
         b.queue.shift();
         const s = this.spawnSpot(b, Math.floor(Math.random() * 6));
         const u = this.addUnit(q.u, b.owner, s.x, s.y);
-        this.players[b.owner].stats.trained++;
+        p.stats.trained++;
         if (b.rally) {
           const rt = b.rally.target && this.ents.get(b.rally.target);
           if (ud.worker && rt && rt.kind === 'res') this.setGather(u, rt);
@@ -832,10 +1028,9 @@ export class World {
       }
     } else if (q.r) {
       q.t += dt;
-      if (q.t >= RESEARCH[q.r].time) {
+      if (q.t >= researchTime(q.r, q.lvl)) {
         b.queue.shift();
-        this.players[b.owner].upgrades[q.r] = 1;
-        this.notify(b.owner, `${RESEARCH[q.r].name} researched!`, 'done');
+        this.completeResearch(b.owner, q.r);
       }
     }
   }
@@ -843,8 +1038,9 @@ export class World {
   separate() {
     for (const a of this.ents.values()) {
       if (a.kind !== 'unit') continue;
-      this.nearUnits(a.x, a.y, a.radius + 12, (b) => {
-        if (b.id <= a.id || b.kind !== 'unit') return;
+      const fa = isFlying(a);
+      this.nearUnits(a.x, a.y, a.radius + 14, (b) => {
+        if (b.id <= a.id || b.kind !== 'unit' || isFlying(b) !== fa) return;
         const dx = b.x - a.x, dy = b.y - a.y;
         const min = a.radius + b.radius + 1;
         const d2 = dx * dx + dy * dy;
@@ -857,8 +1053,8 @@ export class World {
         const wb = 2 - wa;
         const ax = a.x - ux * push * wa, ay = a.y - uy * push * wa;
         const bx = b.x + ux * push * wb, by = b.y + uy * push * wb;
-        if (!this.blockedAt(ax, ay)) { a.x = ax; a.y = ay; }
-        if (!this.blockedAt(bx, by)) { b.x = bx; b.y = by; }
+        if (!this.blockedFor(a, ax, ay)) { a.x = ax; a.y = ay; }
+        if (!this.blockedFor(b, bx, by)) { b.x = bx; b.y = by; }
       });
     }
   }
@@ -871,9 +1067,10 @@ export class World {
       vis.fill(0);
       for (const e of this.ents.values()) {
         if (e.owner !== pid) continue;
-        let r, cx, cy;
-        if (e.kind === 'unit') { r = unitStats(e).sight; cx = Math.floor(e.x / TILE); cy = Math.floor(e.y / TILE); }
-        else { r = BUILDINGS[e.type].sight; cx = Math.floor(e.x / TILE); cy = Math.floor(e.y / TILE); }
+        let r;
+        if (e.kind === 'unit') r = UNITS[e.type].sight + FORMS[e.form].stage;
+        else r = BUILDINGS[e.type].sight;
+        const cx = Math.floor(e.x / TILE), cy = Math.floor(e.y / TILE);
         for (const [ox, oy] of circle(r)) {
           const x = cx + ox, y = cy + oy;
           if (x < 0 || y < 0 || x >= w || y >= h) continue;
@@ -903,19 +1100,21 @@ export class World {
       if (x.kind === 'unit') {
         const flags = (x.moving ? 1 : 0) | (x.anim > 0 ? 2 : 0) | (x.carry.kind === 'berry' && x.carry.amt ? 4 : 0) |
           (x.carry.kind === 'crystal' && x.carry.amt ? 8 : 0) | (x.order.type === 'idle' ? 16 : 0) |
-          (x.order.type === 'gather' ? 32 : 0) | (x.order.type === 'build' ? 64 : 0) | (x.order.type === 'attack' ? 128 : 0);
-        e.push([0, x.id, UNIT_KEYS.indexOf(x.type), x.owner, r1(x.x), r1(x.y), Math.ceil(x.hp), x.maxHp, x.stage, Math.floor(x.xp), flags, x.face]);
+          (x.order.type === 'gather' ? 32 : 0) | (x.order.type === 'build' ? 64 : 0) | (x.order.type === 'attack' ? 128 : 0) |
+          (x.sleep > 0 ? 256 : 0) | (x.evoReady ? 512 : 0) | (x.order.type === 'cast' ? 1024 : 0);
+        e.push([0, x.id, UNIT_KEYS.indexOf(x.type), x.owner, r1(x.x), r1(x.y), Math.ceil(x.hp), x.maxHp,
+          FORM_KEYS.indexOf(x.form), Math.floor(x.xp), flags, x.face, x.acd > 0 ? r1(x.acd) : 0]);
       } else if (x.kind === 'building') {
         e.push([1, x.id, BUILDING_KEYS.indexOf(x.type), x.owner, x.tx, x.ty, Math.ceil(x.hp), x.maxHp,
           x.built ? 1 : Math.round(x.progress * 1000) / 1000,
-          x.queue.map((q) => (q.u ? [0, q.u, r1(q.t)] : [1, q.r, r1(q.t)])), x.rally ? [x.rally.x | 0, x.rally.y | 0] : 0]);
+          x.queue.map((q) => (q.u ? [0, q.u, r1(q.t)] : [1, q.r, r1(q.t), q.lvl])), x.rally ? [x.rally.x | 0, x.rally.y | 0] : 0]);
       } else {
         e.push([2, x.id, RES_KEYS.indexOf(x.type), x.tx, x.ty, x.amount]);
       }
     }
     return {
       tick: this.tick, time: r1(this.time), winner: this.winner,
-      p: this.players.map((p) => [Math.floor(p.b), Math.floor(p.c), p.pop, p.cap, p.upgrades.xattack, p.upgrades.xdefend,
+      p: this.players.map((p) => [Math.floor(p.b), Math.floor(p.c), p.pop, p.cap, p.research,
         p.alive ? 1 : 0, p.stats.trained, p.stats.killed, p.stats.lost, p.stats.gathered]),
       e,
     };
@@ -925,9 +1124,9 @@ export class World {
     this.tick = s.tick; this.time = s.time; this.winner = s.winner;
     s.p.forEach((a, i) => {
       const p = this.players[i];
-      [p.b, p.c, p.pop, p.cap, p.upgrades.xattack, p.upgrades.xdefend] = a;
-      p.alive = !!a[6];
-      p.stats = { trained: a[7], killed: a[8], lost: a[9], gathered: a[10] };
+      [p.b, p.c, p.pop, p.cap, p.research] = a;
+      p.alive = !!a[5];
+      p.stats = { trained: a[6], killed: a[7], lost: a[8], gathered: a[9] };
     });
     const seen = new Set();
     let structural = false;
@@ -940,18 +1139,22 @@ export class World {
         if (!x) x = this.addUnit(type, a[3], a[4], a[5], id);
         x.px = x.x; x.py = x.y;
         x.x = a[4]; x.y = a[5]; x.hp = a[6]; x.maxHp = a[7];
-        if (x.stage !== a[8]) x.radius = UNITS[type].radius + a[8] * 1.5;
-        x.stage = a[8]; x.xp = a[9];
+        const form = FORM_KEYS[a[8]];
+        if (x.form !== form) { x.form = form; x.radius = UNITS[type].radius + FORMS[form].stage * 1.5; }
+        x.xp = a[9];
         const f = a[10];
         x.moving = !!(f & 1); x.anim = f & 2 ? 0.2 : 0;
         x.carry = { kind: f & 4 ? 'berry' : f & 8 ? 'crystal' : null, amt: f & 12 ? 1 : 0 };
-        x.order = { type: f & 16 ? 'idle' : f & 32 ? 'gather' : f & 64 ? 'build' : f & 128 ? 'attack' : 'move' };
+        x.order = { type: f & 16 ? 'idle' : f & 32 ? 'gather' : f & 64 ? 'build' : f & 128 ? 'attack' : f & 1024 ? 'cast' : 'move' };
+        x.sleep = f & 256 ? 1 : 0;
+        x.evoReady = !!(f & 512);
         x.face = a[11];
+        x.acd = a[12];
       } else if (a[0] === 1) {
         if (!x) { x = this.addBuilding(BUILDING_KEYS[a[2]], a[3], a[4], a[5], a[8] === 1, id); structural = true; }
         x.hp = a[6]; x.maxHp = a[7];
         x.built = a[8] === 1; x.progress = a[8];
-        x.queue = a[9].map((q) => (q[0] === 0 ? { u: q[1], t: q[2] } : { r: q[1], t: q[2] }));
+        x.queue = a[9].map((q) => (q[0] === 0 ? { u: q[1], t: q[2] } : { r: q[1], t: q[2], lvl: q[3] }));
         x.rally = a[10] ? { x: a[10][0], y: a[10][1] } : null;
       } else {
         if (!x) { x = this.addResource(RES_KEYS[a[2]], a[3], a[4], id, a[5]); structural = true; }

@@ -1,7 +1,19 @@
 // Computer opponent. Plays through world.issue() just like a human would.
-import { UNITS, BUILDINGS, TILE, DIFFICULTY } from './config.js';
+import { UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, TILE, DIFFICULTY, researchCost } from './config.js';
 
-const COUNTER = { fire: 'squirtle', water: 'bulbasaur', grass: 'charmander', electric: 'bulbasaur', normal: 'charmander', fighting: 'charmander' };
+// enemy's most common type -> good counters
+const COUNTER = {
+  fire: ['squirtle', 'geodude'], water: ['bulbasaur', 'pikachu'], grass: ['charmander', 'pidgey'],
+  electric: ['geodude', 'bulbasaur'], normal: ['geodude', 'charmander'], fighting: ['pidgey', 'charmander'],
+  flying: ['geodude', 'pikachu'], rock: ['squirtle', 'bulbasaur'], dragon: ['pikachu', 'geodude'],
+};
+// research the AI wants for each line it owns, in order
+const LINE_RESEARCH = {
+  charmander: ['evo_charmeleon', 'evo_charizard'], squirtle: ['evo_wartortle', 'evo_blastoise', 'move_heal'],
+  bulbasaur: ['evo_ivysaur', 'evo_venusaur', 'move_sleep'], geodude: ['evo_graveler', 'evo_golem'],
+  pidgey: ['evo_pidgeotto', 'evo_pidgeot'], pikachu: ['thunderstone', 'move_thunder'],
+  eevee: ['waterstone', 'thunderstone', 'firestone'], rayquaza: ['megastone'],
+};
 
 export class AI {
   constructor(world, pid, difficulty = 'normal') {
@@ -9,8 +21,10 @@ export class AI {
     this.pid = pid;
     this.key = difficulty;
     this.d = DIFFICULTY[difficulty] || DIFFICULTY.normal;
-    world.players[pid].gatherMult = this.d.gather;
-    world.players[pid].noFog = true;
+    const me = world.players[pid];
+    me.gatherMult = this.d.gather;
+    me.noFog = true;
+    me.ai = true;
     this.timer = 1;
     this.wave = this.d.firstWave;
     this.attacking = false;
@@ -21,6 +35,7 @@ export class AI {
     const ex = { x: 10, y: world.h - 14 };
     this.expansion = pid === 0 ? ex : { x: world.w - 1 - ex.x, y: world.h - 1 - ex.y };
     this.seed = pid * 7919 + 13;
+    this.researchT = 0;
   }
 
   rand() { this.seed = (this.seed * 16807) % 2147483647; return this.seed / 2147483647; }
@@ -51,7 +66,7 @@ export class AI {
     }
     const hasGym = count('gym') > 0;
     let crystalW = workers.filter((u) => u.order.type === 'gather' && u.order.kind === 'crystal').length;
-    const wantCrystal = hasGym ? Math.ceil(workers.length * 0.3) : 1;
+    const wantCrystal = !hasGym ? 1 : Math.ceil(workers.length * (me.c > me.b + 300 ? 0.15 : me.b > me.c + 300 ? 0.5 : 0.35));
     for (const u of workers) {
       if (u.order.type !== 'idle') continue;
       const kind = crystalW < wantCrystal ? 'crystal' : 'berry';
@@ -74,37 +89,49 @@ export class AI {
 
     // --- buildings
     const pendingMart = blds.some((b) => b.type === 'mart' && !b.built);
-    if (me.cap < 100 && me.cap - me.pop <= 4 + 3 * count('gym', true) && !pendingMart) this.build('mart', workers);
+    if (me.cap < 120 && me.cap - me.pop <= 4 + 3 * count('gym', true) && !pendingMart) this.build('mart', workers);
     if (!hasGym && workers.length >= 8) this.build('gym', workers);
     if (count('gym', true) && !count('lab') && workers.length >= 11 && W.time > (this.key === 'easy' ? 420 : 220)) this.build('lab', workers);
     if (this.key !== 'easy' && count('gym', true) === 1 && count('gym') === 1 && W.time > 330 && me.b > 300) this.build('gym', workers);
     const towers = this.key === 'hard' ? 2 : this.key === 'normal' ? 1 : 0;
     if (count('gym', true) && count('tower') < towers && W.time > 260) this.build('tower', workers, true);
+    if (this.key !== 'easy' && count('lab', true) && !count('skypillar') && W.time > 540 && me.b > 350 && me.c > 300) this.build('skypillar', workers);
     // expand when the home berries run low
     const homeBerries = [...W.ents.values()].filter((e) => e.kind === 'res' && e.type === 'berry' &&
       Math.hypot(e.tx - this.homeT.x, e.ty - this.homeT.y) < 12).length;
     if (homeBerries <= 2 && count('center') < 2 && W.time > 240) this.build('center', workers, false, this.expansion);
 
     // --- research
-    const lab = blds.find((b) => b.type === 'lab' && b.built);
-    if (lab && !lab.queue.length && me.b > 300 && me.c > 250) {
-      for (const k of ['xattack', 'xdefend']) if (!me.upgrades[k] && !W.researching(pid, k)) { W.issue(pid, { c: 'research', id: lab.id, key: k }); break; }
-    }
+    this.researchT -= this.d.think * this.d.research;
+    if (this.researchT <= 0) this.doResearch(blds, army, me);
 
     // --- army production
     const enemyTypes = {};
-    for (const e of W.unitsOf(this.enemy)) if (!UNITS[e.type].worker) enemyTypes[UNITS[e.type].type] = (enemyTypes[UNITS[e.type].type] || 0) + UNITS[e.type].pop;
+    for (const e of W.unitsOf(this.enemy)) if (!UNITS[e.type].worker) {
+      const t = FORMS[e.form].type;
+      enemyTypes[t] = (enemyTypes[t] || 0) + UNITS[e.type].pop;
+    }
+    const lab = blds.find((b) => b.type === 'lab' && b.built);
     for (const g of blds.filter((b) => b.type === 'gym' && b.built)) {
       if (g.queue.length >= 2) continue;
-      const t = this.pickUnit(enemyTypes, !!lab);
+      const t = this.pickUnit(enemyTypes, !!lab, false);
       if (W.canAfford(pid, UNITS[t].cost) && me.pop + UNITS[t].pop <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
-      if (!g.rally) {
-        const dx = Math.sign(W.map.starts[this.enemy].tx - this.homeT.x);
-        W.issue(pid, { c: 'rally', id: g.id, x: this.home.x + dx * 5 * TILE, y: this.home.y + dx * 5 * TILE });
-      }
+      if (!g.rally) this.setRally(g);
     }
-    if (lab && !lab.queue.length && army.length >= 6 && this.rand() < 0.35 && W.canAfford(pid, UNITS.snorlax.cost) && me.pop + 6 <= me.cap)
+    if (lab && !lab.queue.some((q) => q.u) && army.length >= 6 && this.rand() < 0.3 && W.canAfford(pid, UNITS.snorlax.cost) && me.pop + 6 <= me.cap)
       W.issue(pid, { c: 'train', id: lab.id, type: 'snorlax' });
+    const pillar = blds.find((b) => b.type === 'skypillar' && b.built);
+    if (pillar && !pillar.queue.some((q) => q.u)) {
+      if (!pillar.rally) this.setRally(pillar);
+      if (W.unitCount(pid, 'rayquaza') < 1 && W.canAfford(pid, UNITS.rayquaza.cost) && me.pop + 10 <= me.cap)
+        W.issue(pid, { c: 'train', id: pillar.id, type: 'rayquaza' });
+      else if (this.rand() < 0.5 && W.canAfford(pid, { b: UNITS.pidgey.cost.b + 150, c: UNITS.pidgey.cost.c + 100 }) && me.pop + 2 <= me.cap)
+        W.issue(pid, { c: 'train', id: pillar.id, type: 'pidgey' });
+    }
+
+    // --- special moves
+    if (this.d.moves) this.useMoves(army);
+    // Eevees are evolved automatically by the world for AI players
 
     // --- combat
     const armyPop = army.reduce((s, u) => s + UNITS[u.type].pop, 0);
@@ -115,7 +142,7 @@ export class AI {
     }
     const ids = (list) => list.map((u) => u.id);
     if (threat) {
-      const defenders = army.filter((u) => u.order.type !== 'attack');
+      const defenders = army.filter((u) => u.order.type !== 'attack' && u.order.type !== 'cast');
       if (defenders.length) W.issue(pid, { c: 'move', ids: ids(defenders), x: threat.x, y: threat.y, attack: true });
       if (this.attacking && armyPop < this.wave * 0.5) this.attacking = false;
     } else if (!this.attacking && armyPop >= this.wave) {
@@ -135,6 +162,60 @@ export class AI {
     }
   }
 
+  setRally(b) {
+    const dx = Math.sign(this.w.map.starts[this.enemy].tx - this.homeT.x);
+    this.w.issue(this.pid, { c: 'rally', id: b.id, x: this.home.x + dx * 5 * TILE, y: this.home.y + dx * 5 * TILE });
+  }
+
+  doResearch(blds, army, me) {
+    const W = this.w, pid = this.pid;
+    // what to research next, by priority
+    const wants = [];
+    const lines = new Set(army.map((u) => u.type));
+    for (const l of lines) for (const k of LINE_RESEARCH[l] || []) wants.push(k);
+    wants.push('harvest', 'attack', 'defense', 'drill', 'bigbag');
+    if (this.key === 'hard') wants.push('fortify', 'towerup', 'martplus');
+    for (const k of wants) {
+      if (k.startsWith('move_') && !this.d.moves) continue;
+      if (W.researchBlock(pid, k)) continue;
+      const at = blds.find((b) => b.built && (BUILDINGS[b.type].research || []).includes(k) && !b.queue.some((q) => q.r));
+      if (!at) continue;
+      const cost = researchCost(k, W.rlevel(pid, k));
+      // keep some money for the army
+      if (me.b < cost.b + 150 || me.c < cost.c + 50) return;
+      W.issue(pid, { c: 'research', id: at.id, key: k });
+      this.researchT = RESEARCH[k].time * 0.5;
+      return;
+    }
+  }
+
+  useMoves(army) {
+    const W = this.w, pid = this.pid;
+    for (const u of army) {
+      const key = FORMS[u.form].ability;
+      if (!key || u.acd > 0 || u.sleep > 0 || u.order.type === 'cast' || !W.rlevel(pid, ABILITIES[key].research)) continue;
+      const ab = ABILITIES[key];
+      const reach = (ab.range + 2) * TILE, r = ab.radius * TILE;
+      if (key === 'heal') {
+        let hurt = 0, sx = 0, sy = 0;
+        W.nearUnits(u.x, u.y, reach, (e) => {
+          if (e.owner === pid && e.hp < e.maxHp * 0.6) { hurt++; sx += e.x; sy += e.y; }
+        });
+        if (hurt >= 2) W.issue(pid, { c: 'cast', ids: [u.id], key, x: sx / hurt, y: sy / hurt });
+      } else {
+        // aim at the densest enemy group in reach
+        let best = null, bn = 1;
+        W.nearUnits(u.x, u.y, reach, (e) => {
+          if (e.owner === pid || UNITS[e.type].worker || e.sleep > 0 || (key === 'thunder' && FORMS[e.form].type === 'rock')) return;
+          let n = 0;
+          W.nearUnits(e.x, e.y, r, (f) => { if (f.owner !== pid && Math.hypot(f.x - e.x, f.y - e.y) <= r) n++; });
+          if (n > bn) { bn = n; best = e; }
+        });
+        if (best) W.issue(pid, { c: 'cast', ids: [u.id], key, x: best.x, y: best.y });
+      }
+    }
+  }
+
   enemyTarget() {
     let best = null, bd = Infinity;
     for (const b of this.w.buildingsOf(this.enemy)) {
@@ -150,16 +231,14 @@ export class AI {
   }
 
   pickUnit(enemyTypes, hasLab) {
-    const opts = ['charmander', 'squirtle', 'bulbasaur'];
+    const opts = ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee'];
     if (hasLab) opts.push('pikachu');
+    const ok = (t) => t !== 'pidgey' && (t !== 'pikachu' || hasLab);
     if (this.d.counter && this.rand() < 0.6) {
       let top = null, tv = 0;
       for (const [k, v] of Object.entries(enemyTypes)) if (v > tv) { tv = v; top = k; }
-      if (top) {
-        let c = COUNTER[top];
-        if (c === 'bulbasaur' && hasLab && this.rand() < 0.4) c = 'pikachu';
-        return c;
-      }
+      const c = top && (COUNTER[top] || []).filter(ok);
+      if (c && c.length) return c[Math.floor(this.rand() * c.length)];
     }
     return opts[Math.floor(this.rand() * opts.length)];
   }
@@ -221,3 +300,4 @@ export class AI {
     return null;
   }
 }
+

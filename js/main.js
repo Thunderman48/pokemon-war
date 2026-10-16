@@ -95,7 +95,7 @@ function updateSoundBtn() { $('btn-sound').textContent = `SOUND: ${isMuted() ? '
 async function init() {
   assets = await loadAssets();
   $('loading').hidden = true;
-  $('hero').innerHTML = ['charmander', 'squirtle', 'pikachu', 'bulbasaur', 'snorlax']
+  $('hero').innerHTML = ['charmander', 'eevee', 'pikachu', 'geodude', 'pidgeot', 'rayquaza']
     .map((s) => `<img src="assets/units/${s}.png" alt="">`).join('');
 
   document.addEventListener('click', (e) => {
