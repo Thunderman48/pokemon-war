@@ -210,29 +210,33 @@ def head(cv, hx, hy, pal, mega=False):
     line((6.5, 1.4), (15.5, 1.4), pal["lip"])
     line((6.5, 2), (11, 11.2), pal["lip"])
     # skull: bulky brow tapering into a long, thick, pointed upper jaw
-    poly([(-2, -2), (-1, -5), (3, -7), (7, -7.2), (10, -5.5), (15, -3.2), (18, -1.5), (19.2, 0), (18, 1.7),
+    poly([(-2, -2), (-1, -5), (3, -7), (7.5, -7.2), (11, -5.4), (16, -2.8), (21, 0.4), (18, 1.6),
           (15.5, 1.5), (6.5, 1.5), (2, 2), (-2, 1.5)], pal["mid"])
     line((-1, -4.6), (3, -6.6), pal["light"])
-    line((3, -6.8), (7, -6.9), pal["hi"])
-    line((7, -6.7), (15, -2.9), pal["light"])
-    line((15, -2.9), (18.6, -1), pal["hi"])
+    line((3, -6.8), (7.5, -6.9), pal["hi"])
+    line((8, -6.6), (16, -2.5), pal["hi"])
+    line((8, -5.8), (15, -2.4), pal["light"])
+    line((16, -2.4), (20.5, 0.4), pal["hi"])
     line((-1, 1), (6, 1.1), pal["dark"])
-    line((15.5, 1.2), (18, 1.4), pal["dark"])
-    # fangs
-    dot(14.5, 2, pal["fang"])
-    dot(14.5, 3, pal["fang"])
-    dot(9, 2, pal["fang"])
+    line((15.5, 1.2), (19, 1.2), pal["dark"])
+    # dark crease running from the eye down the snout to the nose
+    line((12.5, -2.2), (19.5, 0.2), pal["dark"])
+    dot(18.5, -0.4, pal["shadow"])
+    # fangs: one hanging right at the snout tip, one further back
+    dot(18.5, 2, pal["fang"])
+    dot(18.5, 3, pal["fang"])
+    dot(10, 2, pal["fang"])
     dot(10.6, 10, pal["fang"])
-    # nostril
-    dot(17, -0.8, pal["shadow"])
-    # sharp eye under a heavy brow
-    line((6, -5.4), (11.5, -4.2), pal["shadow"])
-    dot(7.5, -4, pal["eye"])
-    dot(8.5, -4, pal["eye"])
-    dot(9.5, -3.8, pal["pupil"])
-    dot(8.5, -3, pal["dark"])
-    # thin yellow line running back from behind the eye
-    line((5.5, -3.6), (0, -3.2), pal["line"])
+    # fierce eye: 2x2 yellow with the pupil in the front-bottom corner,
+    # sunk in a dark socket under a brow that slants down toward the snout
+    poly([(8.5, -5.2), (12.8, -4.2), (13, -1.8), (9, -1.8)], pal["shadow"])
+    line((7.5, -6), (13.5, -3.6), pal["shadow"])
+    dot(10, -4, pal["eye"])
+    dot(11, -4, pal["eye"])
+    dot(10, -3, pal["eye"])
+    dot(11, -3, pal["pupil"])
+    # yellow mark on the forehead
+    line((2, -5.6), (5.5, -6.2), pal["line"])
     # near horns: broad flat blades, one rising almost vertically, one longer sweeping back
     tip_v = (4.5, -7 - 13 * h)
     poly([(2, -6.2), (6.5, -7), tip_v, (3, -7 - 12.5 * h)], pal["mid"])
