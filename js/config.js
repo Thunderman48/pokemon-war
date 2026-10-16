@@ -122,8 +122,8 @@ export const FORMS = {
   pidgey: { line: 'pidgey', name: 'Pidgey', type: 'flying', stage: 0, next: [{ to: 'pidgeotto', r: 'evo_pidgeotto' }] },
   pidgeotto: { line: 'pidgey', name: 'Pidgeotto', type: 'flying', stage: 1, next: [{ to: 'pidgeot', r: 'evo_pidgeot' }] },
   pidgeot: { line: 'pidgey', name: 'Pidgeot', type: 'flying', stage: 2 },
-  rayquaza: { line: 'rayquaza', name: 'Rayquaza', type: 'dragon', stage: 0, mouth: [65, -45], anim: 8, next: [{ to: 'megarayquaza', r: 'megastone' }] },
-  megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, mouth: [70, -52], anim: 8, proj: 'megabreath', mult: { hp: 2, dmg: 1.8, range: 1.5, speed: 1.2 } },
+  rayquaza: { line: 'rayquaza', name: 'Rayquaza', type: 'dragon', stage: 0, mouth: [67, -47], anim: 8, next: [{ to: 'megarayquaza', r: 'megastone' }] },
+  megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, mouth: [72, -53], anim: 8, proj: 'megabreath', mult: { hp: 2, dmg: 1.8, range: 1.5, speed: 1.2 } },
 };
 
 export const BUILDINGS = {

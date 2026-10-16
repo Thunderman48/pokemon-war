@@ -83,7 +83,7 @@ class Canvas:
 NORMAL = {
     "hi": (150, 232, 196), "light": (98, 204, 156), "mid": (64, 170, 124), "dark": (42, 130, 96), "shadow": (28, 94, 72),
     "line": (250, 218, 74), "trim": (224, 72, 84), "trimdark": (160, 40, 60),
-    "mouth": (104, 22, 40), "gum": (240, 124, 146), "lip": (222, 60, 72), "fang": (250, 250, 250),
+    "mouth": (150, 84, 116), "gum": (214, 150, 186), "lip": (190, 74, 104), "fang": (250, 250, 250),
     "eye": (250, 222, 70), "pupil": (20, 20, 24), "claw": (244, 244, 248),
     "black": (34, 34, 42), "blackhi": (58, 58, 70),
 }
@@ -192,78 +192,101 @@ def serpent(cv, spine_pts, radius, pal, segments=10, mega=False, black=None):
     return sp, S, tang
 
 
-def head(cv, hx, hy, pal, mega=False, k=0.72, open_=1.0):
-    """Small, sharp head facing right: a narrow beak-like snout under a raised brow crest,
-    angry almond eye, jaw dropped wide open, long thin blade horns.
-    (hx, hy) is where the neck meets the back of the skull. Returns the horn tips."""
-    def P(dx, dy):
-        return (hx + dx * k, hy + dy * k)
+# ------------------------------------------------------------------ head (hand-placed pixels)
+# Facing right. Drawn from the user's reference art: a compact wedge head with a crest spike
+# above a long, angry almond eye, a yellow-outlined plate behind the eye, a thin snout that
+# slopes to a small hooked fang, and a deep mouth that opens downward like a beak.
+# K outline, H/L/M/D/S greens, Y yellow line, E iris, P pupil, R lip, O mouth, G tongue, W tooth.
+HEAD_UPPER = [
+    ".......K................",
+    "......KHK...............",
+    "...KKKLMMKKK............",
+    "..KMMYYYMMMMKKK.........",
+    ".KMMYMMMKKKKKKMKK.......",
+    "KMMMYMMKKKKKKKKKMKK.....",
+    "KMMMYMMMKKKKKKEPKHHKK...",
+    "KMMMMYMMMMMMKKKMMMMMLHK.",
+    ".KMMMMYMMMMMMMMMMMMMMMHK",
+]
+HEAD_JAW = {
+    "open": [
+        ".KDMMMYMRRRRRRRRRRRRRKWK",
+        "..KDDMMROWOOWOOWOOOOK.K.",
+        "..KDDDDROGGGOOOOOOOK....",
+        "...KDDDROGGGGOOOOOK.....",
+        "...KDDDDROGGOOOOOK......",
+        "....KDDDDROOOOOWK.......",
+        ".....KKDDDDRRRRK........",
+        ".......KKKDDDDDK........",
+        "..........KKKKK.........",
+    ],
+    "half": [
+        ".KDMMMYMRRRRRRRRRRRRRKWK",
+        "..KDDMMROWOOWOOWOOKK.K..",
+        "..KDDDDROGGOOOOOKK......",
+        "...KKDDDDRROOOWK........",
+        ".....KKDDDDRRRRK........",
+        ".......KKKKDDDDK........",
+        "...........KKKK.........",
+    ],
+    "closed": [
+        ".KDMMMYMSSSSSSSSSSSSSSWK",
+        "..KDDDDDDDDDDDDDDDDDKK..",
+        "...KKDDDDDDDDDDDDKK.....",
+        ".....KKKKKKKKKKKK.......",
+    ],
+}
+HEAD_NECK = (2, 12)  # grid pixel where the neck joins
 
-    def poly(pts, c):
-        cv.poly([P(*p) for p in pts], c)
 
-    def line(a, b, c):
-        (x0, y0), (x1, y1) = P(*a), P(*b)
-        cv.line(x0, y0, x1, y1, c)
+def head(cv, hx, hy, pal, mega=False, open_=1.0):
+    """Draw the head with its neck point at (hx, hy). Returns the horn tips (absolute)."""
+    ox, oy = int(round(hx)) - HEAD_NECK[0], int(round(hy)) - HEAD_NECK[1]
 
-    h = 1.35 if mega else 1.0
-    tip_v = (2 - 6 * h, -8 - 16 * h)      # horn rising up and back
-    tip_b = (-6 - 24 * h, -3 - 9 * h)     # long horn sweeping straight back
-    tip_j = (-4 - 16 * h, 4 + 9 * h)      # long jaw horn hanging back
-    # far-side horns (shadow)
-    poly([(0, -5), (4, -6.5), (tip_v[0] + 5, tip_v[1] + 2)], pal["shadow"])
-    poly([(-1, 1), (2, 2.5), (tip_j[0] + 6, tip_j[1] + 3)], pal["shadow"])
-    # lower jaw swings from closed (tucked under the snout) to wide open
-    o = max(0.0, min(1.0, open_))
-    jx, jy = 20 + (13.5 - 20) * o, 2.6 + (8.6 - 2.6) * o
-    poly([(2, 1.6), (7, 1.4), (jx, jy), (jx - 1.5, jy + 0.8), (2, 4)], pal["dark"])
-    # mouth
-    if o > 0.3:
-        poly([(7, 1.3), (19, 1.3), (jx - 0.5, jy - 0.4)], pal["mouth"])
-        if o > 0.45:
-            poly([(9, 3), (13, 3.3), (jx - 0.5, jy - 2)], pal["gum"])
-        line((7, 1.8), (jx - 0.5, jy - 0.4), pal["lip"])
-        line((7, 1.2), (19, 1.2), pal["lip"])
-    else:
-        # mouth (nearly) closed: just a dark seam with a hint of red at the corner
-        line((7, 1.4), (19, 1.4), pal["shadow"])
-        cv.set(*P(7.5, 1.6), pal["lip"])
-    # skull + narrow beak: raised brow crest, then a long straight slope to a needle tip
-    poly([(-3, -1), (-1, -4.2), (5, -6.4), (9, -4.4), (23, 0.4), (21, 1.3), (7, 1.2), (1, 2)], pal["mid"])
-    line((-1, -4), (5, -6.2), pal["light"])
-    line((9, -4.2), (23, 0.4), pal["hi"])
-    line((9, -3.2), (20.5, 0.3), pal["light"])
-    line((-2, 0.7), (7, 0.8), pal["dark"])
-    # tiny teeth (only show when the mouth is open)
-    if o > 0.25:
-        cv.set(*P(17, 1.8), pal["fang"])
-        cv.set(*P(11, 1.8), pal["fang"])
-    # long almond eye (like the references): black rim slanting down toward the snout,
-    # iris at the back, pupil in front, and a thin trailing corner
-    ex, ey = P(4.8, -3.4)
-    ex, ey = int(ex), int(ey)
-    rim = pal["black"]
-    for ox, oy in ((0, -1), (1, -1), (2, -1), (3, 0), (4, 0), (5, 1), (-1, 0), (0, 1), (1, 1), (2, 1), (3, 1), (4, 1)):
-        cv.set(ex + ox, ey + oy, rim)
-    cv.set(ex, ey, pal["eye"])
-    cv.set(ex + 1, ey, pal["eye"])
-    cv.set(ex + 2, ey, pal["pupil"] if not mega else pal["pupil"])
-    # yellow line from behind the eye back along the head toward the neck
-    line((2, -0.8), (-3, 0.2), pal["line"])
-    # near horns: long thin blades
-    poly([(1, -4.8), (5, -6.4), tip_v, (tip_v[0] - 1.5, tip_v[1] + 2)], pal["mid"])
-    line((4.5, -6.3), tip_v, pal["light"])
-    poly([(-2, -2.6), (2.5, -5.6), tip_b, (tip_b[0] + 2, tip_b[1] + 2)], pal["mid"])
-    line((2, -5.4), tip_b, pal["light"])
-    line((-1.5, -2.8), (tip_b[0] + 2, tip_b[1] + 1.8), pal["line"] if mega else pal["dark"])
-    poly([(-2.5, -0.5), (2, 2), tip_j], pal["mid"])
-    line((-2, -0.2), tip_j, pal["light"])
+    def A(x, y):
+        return (ox + x, oy + y)
+
+    h = 1.3 if mega else 1.0
+    # horns first (head pixels overlap their roots): upright horn leaning forward,
+    # long horn sweeping back, long jaw horn hanging back
+    tip_v = A(12 * h, -11 * h)
+    tip_b = A(-22 * h, -8 * h)
+    tip_j = A(-14 * h, 23 * h)
+    # far-side copy of the upright horn, then the broad flat upright horn leaning forward
+    cv.poly([A(8, 2), A(11, 2), (tip_v[0] + 3, tip_v[1] + 2)], pal["shadow"])
+    cv.poly([A(3, 3), A(10, 2), tip_v, A(8 * h, -8 * h)], pal["mid"])
+    cv.line(*A(9.5, 2), *tip_v, pal["light"])
+    cv.line(*A(3.5, 3), tip_v[0] - 2, tip_v[1] + 2, pal["dark"])
+    # long horn sweeping back
+    cv.poly([A(1, 8), A(4, 3), tip_b], pal["mid"])
+    cv.line(*A(3.5, 3.4), *tip_b, pal["light"])
+    cv.line(*A(1.5, 7.5), tip_b[0] + 1, tip_b[1] + 1, pal["dark"])
+    # long jaw horn hanging back
+    cv.poly([A(0, 12), A(4, 15), tip_j], pal["mid"])
+    cv.line(*A(0.5, 12.5), *tip_j, pal["light"])
+    cv.line(*A(3.5, 14.5), *tip_j, pal["dark"])
+
+    jaw = "open" if open_ > 0.6 else "half" if open_ > 0.25 else "closed"
+    rows = HEAD_UPPER + HEAD_JAW[jaw]
+    cmap = {
+        "K": OUT[:3], "H": pal["hi"], "L": pal["light"], "M": pal["mid"], "D": pal["dark"], "S": pal["shadow"],
+        "Y": pal["line"], "E": pal["eye"], "P": pal["pupil"], "R": pal["lip"], "O": pal["mouth"], "G": pal["gum"],
+        "W": pal["fang"],
+    }
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch == ".":
+                continue
+            c = cmap[ch]
+            if mega and ch == "D" and y >= 11:
+                c = pal["black"]  # Mega's black chin
+            cv.set(ox + x, oy + y, c)
     if mega:
-        line((7, 1.8), (-1, 2.5), pal["line"])
-        cv.set(*P(5, -7.6), pal["line"])
-        cv.set(*P(4, -6.8), pal["line"])
-        cv.set(*P(6, -6.8), pal["line"])
-    return {"up": P(*tip_v), "back": P(*tip_b), "jaw": P(*tip_j)}
+        # golden delta on the forehead and a gold line from the lips back to the jaw horn
+        for dx, dy in ((6, -1), (5, 0), (7, 0)):
+            cv.set(ox + dx, oy + dy, pal["line"])
+        cv.line(*A(2, 11), *A(-3, 13), pal["line"])
+    return {"up": tip_v, "back": tip_b, "jaw": tip_j}
 
 
 def arm(cv, x, y, pal):
@@ -308,27 +331,27 @@ def wave(spine, phase, amp):
 
 
 def rayquaza(phase=0.0, open_=0.2):
-    W, H = 150, 64
+    W, H = 152, 70
     cv = Canvas(W, H)
     # big S-curves, like the official figure
-    base = [(8, 23), (14, 33), (22, 43), (32, 49), (43, 48), (51, 41), (56, 31), (62, 22), (71, 16), (82, 17),
-            (91, 24), (97, 34), (104, 43), (114, 47), (124, 42), (129, 33), (130, 25)]
+    base = [(8, 29), (14, 39), (22, 49), (32, 55), (43, 54), (51, 47), (56, 37), (62, 28), (71, 22), (82, 23),
+            (91, 30), (97, 40), (104, 49), (114, 53), (124, 48), (129, 39), (130, 31)]
     spine = wave(base, phase, 2.4)
     d = [p[1] - q[1] for p, q in zip(spine, base)]
     tail_fin(cv, spine[0][0], spine[0][1], NORMAL)
     serpent(cv, spine, slim(2.6, 2.2), NORMAL, segments=22)
-    arm(cv, 123, 39 + d[-3], NORMAL)
-    arm(cv, 127, 38 + d[-2], NORMAL)
-    head(cv, 130, 23 + d[-1], NORMAL, open_=open_)
+    arm(cv, 123, 45 + d[-3], NORMAL)
+    arm(cv, 127, 44 + d[-2], NORMAL)
+    head(cv, 131, 31 + d[-1], NORMAL, open_=open_)
     cv.outline()
     return cv.img
 
 
 def mega_rayquaza(phase=0.0, open_=0.2):
-    W, H = 170, 78
+    W, H = 172, 86
     cv = Canvas(W, H)
-    base = [(8, 32), (14, 43), (23, 53), (34, 59), (46, 58), (55, 50), (61, 39), (68, 29), (78, 23), (90, 24),
-            (100, 32), (107, 43), (115, 53), (126, 57), (137, 51), (143, 41), (145, 33)]
+    base = [(8, 40), (14, 51), (23, 61), (34, 67), (46, 66), (55, 58), (61, 47), (68, 37), (78, 31), (90, 32),
+            (100, 40), (107, 51), (115, 61), (126, 65), (137, 59), (143, 49), (145, 41)]
     spine = wave(base, phase, 2.8)
     d = [p[1] - q[1] for p, q in zip(spine, base)]
 
@@ -336,7 +359,7 @@ def mega_rayquaza(phase=0.0, open_=0.2):
         k = int(s * 26)
         return (v < -0.2 and k % 2 == 1) or (s > 0.92 and v < 0)
     tail_fin(cv, spine[0][0], spine[0][1], MEGA, mega=True)
-    hx, hy = 145, 31 + d[-1]
+    hx, hy = 146, 41 + d[-1]
     # draw the head first on a scratch canvas just to get the horn tips
     tips = head(Canvas(W, H), hx, hy, MEGA, mega=True)
     gold, glow = (255, 186, 48), (255, 236, 150)
@@ -369,8 +392,8 @@ def mega_rayquaza(phase=0.0, open_=0.2):
         cv.set(rx + math.cos(math.radians(a2)) * 3.4, ry + math.sin(math.radians(a2)) * 3.4, glow)
     cv.set(rx, ry, glow)
     serpent(cv, spine, slim(3.0, 2.5), MEGA, segments=26, mega=True, black=black)
-    arm(cv, 138, 47 + d[-3], MEGA)
-    arm(cv, 142, 46 + d[-2], MEGA)
+    arm(cv, 138, 55 + d[-3], MEGA)
+    arm(cv, 142, 54 + d[-2], MEGA)
     head(cv, hx, hy, MEGA, mega=True, open_=open_)
     cv.outline()
     return cv.img
