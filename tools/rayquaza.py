@@ -387,6 +387,68 @@ def mega_rayquaza(phase=0.0, open_=0.2):
     return cv.img
 
 
+def fast_spine(x0, x1, y, phase, amp, n=18, rise=4):
+    """Nearly straight body for fast flight: a long, quick ribbon ripple that is
+    strongest at the tail and almost still at the neck (like Rayquaza in Pokemon GO)."""
+    pts = []
+    for i in range(n):
+        w = i / (n - 1)  # 0 = tail, 1 = neck
+        x = x0 + (x1 - x0) * w
+        env = 1 - 0.8 * w
+        pts.append((x, y - rise * w + amp * env * math.sin(2 * math.pi * (w * 1.15 + phase))))
+    return pts
+
+
+def rayquaza_fast(phase=0.0):
+    W, H = 188, 52
+    cv = Canvas(W, H)
+    spine = fast_spine(10, 156, 34, phase, 4.0)
+    nx, ny = spine[-1]
+    tail_fin(cv, spine[0][0], spine[0][1], NORMAL)
+    serpent(cv, spine, slim(2.6, 2.2), NORMAL, segments=22)
+    arm(cv, nx - 9, ny + 3, NORMAL)
+    head(cv, nx + 1, ny, NORMAL, open_=0.0)
+    cv.outline()
+    return cv.img
+
+
+def mega_rayquaza_fast(phase=0.0):
+    W, H = 214, 64
+    cv = Canvas(W, H)
+    spine = fast_spine(10, 176, 42, phase, 4.5)
+    nx, ny = spine[-1]
+
+    def black(s, v):
+        k = int(s * 26)
+        return (v < -0.2 and k % 2 == 1) or (s > 0.92 and v < 0)
+    tail_fin(cv, spine[0][0], spine[0][1], MEGA, mega=True)
+    tips = head(Canvas(W, H), nx + 1, ny, MEGA, mega=True, open_=0.0)
+    gold, glow = (255, 186, 48), (255, 236, 150)
+    ph = 2 * math.pi * phase
+    # filaments stream straight back in the wind
+    for (sx, sy), length, amp, off in ((tips["jaw"], 110, 2.5, 0.0), (tips["back"], 70, 2.0, 1.3)):
+        pts = [(sx - t * length, sy + 2 * t + math.sin(t * math.pi * 4 - ph * 2 + off) * amp * t) for t in [i / 199 for i in range(200)]]
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            cv.line(x0, y0, x1, y1, gold)
+        for x, y in pts[::9]:
+            cv.set(x, y - 1, glow)
+    serpent(cv, spine, slim(3.0, 2.5), MEGA, segments=26, mega=True, black=black)
+    arm(cv, nx - 10, ny + 3, MEGA)
+    head(cv, nx + 1, ny, MEGA, mega=True, open_=0.0)
+    cv.outline()
+    return cv.img
+
+
+def fast_sheet(fn):
+    """One row of FRAMES fast-flight frames."""
+    frames = [fn(i / FRAMES) for i in range(FRAMES)]
+    w, h = frames[0].size
+    out = Image.new("RGBA", (w * FRAMES, h), (0, 0, 0, 0))
+    for i, f in enumerate(frames):
+        out.paste(f, (i * w, 0))
+    return out
+
+
 def sheet(fn):
     """Sprite sheet: row 0 = flying with the mouth mostly closed (it opens and closes
     a little as it flies), row 1 = the same frames with the jaw wide open (attacking)."""

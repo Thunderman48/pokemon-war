@@ -124,7 +124,7 @@ export class Renderer {
   }
 
   // how high above the ground a unit's sprite is drawn
-  lift(e, now) { return isFlying(e) ? 12 + Math.sin(now / 300 + e.id) * 1.5 : 0; }
+  lift(e, now) { return (isFlying(e) ? 12 + Math.sin(now / 300 + e.id) * 1.5 : 0) + (e.lift || 0); }
   unitScale(e) { return FORMS[e.form].scale || 1; }
   // top edge (world y) of a unit's sprite
   unitTop(e, now = 0) {
@@ -259,30 +259,46 @@ export class Renderer {
     const lift = this.lift(e, now);
     const sc = this.unitScale(e);
     // shadow + team marker
+    const high = Math.max(0.15, 1 - (e.lift || 0) / 300);
     ctx.fillStyle = fly ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.25)';
-    ctx.beginPath(); ctx.ellipse(x, y + 3, e.radius, e.radius * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x, y + 3, e.radius * high, e.radius * 0.45 * high, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = TEAM_COLORS[e.owner];
     ctx.globalAlpha = 0.85;
     ctx.beginPath(); ctx.ellipse(x, y + 3, e.radius * 0.8, e.radius * 0.35, 0, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
     if (!img) return;
-    const w = img.width * sc, h = img.height * sc;
+    const fastA = this.A.fast[e.form];
+    if (fastA && e.ascend) { this.drawAscending(e, now, fastA); return; }
+    // which sheet: fast flight while moving, idle hover otherwise (open jaw while attacking)
+    const attacking = e.anim > 0 || e.order.type === 'cast';
+    const anim = this.A.anim[e.form];
+    let src;
+    if (fastA && e.moving && !attacking) {
+      const fw = fastA.img.width / fastA.n;
+      src = { img: fastA.img, sx: (Math.floor(now / 60 + e.id * 3) % fastA.n) * fw, sy: 0, sw: fw, sh: fastA.img.height, fast: true };
+    } else if (anim) {
+      const fw = anim.img.width / anim.n, fh = anim.img.height / 2;
+      src = { img: anim.img, sx: (Math.floor(now / 95 + e.id * 3) % anim.n) * fw, sy: attacking ? fh : 0, sw: fw, sh: fh };
+    } else src = { img, sx: 0, sy: 0, sw: img.width, sh: img.height };
+    const w = src.sw * sc, h = src.sh * sc;
     const bob = e.moving && !fly ? -Math.abs(Math.sin(now / 90 + e.id)) * 1.5 : 0;
     const lunge = e.anim > 0 ? e.face * 1.5 : 0;
     const dx = Math.round(x + lunge - w / 2), dy = Math.round(y + 4 - h + bob - lift);
+    if (src.fast) {
+      // wind streaks trailing behind a fast flyer
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const off = (now / 12 + i * 37 + e.id * 11) % 40;
+        const sx0 = x - e.face * (w * 0.5 - 10 + off), sy0 = y - lift - h * 0.25 - i * 4 + (i % 2) * 2;
+        ctx.globalAlpha = 1 - off / 40;
+        ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(sx0 - e.face * 14, sy0); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
     ctx.save();
     if (e.face < 0) { ctx.translate(dx * 2 + w, 0); ctx.scale(-1, 1); }
     if (e.sleep > 0) ctx.globalAlpha = 0.75;
-    const anim = this.A.anim[e.form];
-    const frame = anim ? Math.floor(now / 95 + e.id * 3) % anim.n : 0;
-    const blit = () => {
-      if (anim) {
-        // row 0: flying, mouth mostly closed; row 1: jaw wide open while attacking
-        const fw = anim.img.width / anim.n, fh = anim.img.height / 2, row = e.anim > 0 || e.order.type === 'cast' ? 1 : 0;
-        ctx.drawImage(anim.img, frame * fw, row * fh, fw, fh, dx, dy, w, h);
-      }
-      else ctx.drawImage(img, dx, dy, w, h);
-    };
+    const blit = () => ctx.drawImage(src.img, src.sx, src.sy, src.sw, src.sh, dx, dy, w, h);
     blit();
     ctx.globalAlpha = 1;
     const ft = this.evoFlash.get(e.id);
@@ -395,7 +411,8 @@ export class Renderer {
       const f = this.fx[i];
       const age = (now - f.start) / 1000;
       const life = f.k === 'p' ? f.d : f.k === 'evo' ? 1.4 : f.k === 'die' ? (f.b ? 0.9 : 0.5) : f.k === 'heal' ? 0.7 :
-        f.k === 'zap' ? 0.5 : f.k === 'bolt' ? 0.6 : f.k === 'healp' ? 0.8 : f.k === 'sleep' ? 1.2 : f.k === 'boom' ? 1.0 : 0.3;
+        f.k === 'zap' ? 0.5 : f.k === 'bolt' ? 0.6 : f.k === 'healp' ? 0.8 : f.k === 'sleep' ? 1.2 : f.k === 'boom' ? 1.0 :
+        f.k === 'ascent' ? 1.0 : f.k === 'mark' || f.k === 'dive' ? f.d : f.k === 'quake' ? 1.5 : 0.3;
       if (age > life) { this.fx.splice(i, 1); continue; }
       const t = age / life;
       const fxX = f.k === 'p' ? f.x2 : f.x, fxY = f.k === 'p' ? f.y2 : f.y;
@@ -472,6 +489,14 @@ export class Renderer {
           ctx.fillStyle = `rgba(250,${150 + (j % 3) * 30},220,${0.8 * (1 - t)})`;
           ctx.beginPath(); ctx.arc(f.x + Math.cos(a) * d, f.y + Math.sin(a) * d * 0.7 - t * 8, 2.5 + (j % 3), 0, 7); ctx.fill();
         }
+      } else if (f.k === 'ascent') {
+        this.ascentFx(f, t, now);
+      } else if (f.k === 'mark') {
+        this.markFx(f, t, now);
+      } else if (f.k === 'dive') {
+        this.diveFx(f, t, now);
+      } else if (f.k === 'quake') {
+        this.quakeFx(f, t, now);
       } else if (f.k === 'boom') {
         this.dragonBoom(f, t, now);
       } else if (f.k === 'done') {
@@ -520,6 +545,143 @@ export class Renderer {
       ctx.fillStyle = '#f03c3c'; ctx.beginPath(); ctx.arc(x, y, 2.5, Math.PI, 0); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI); ctx.fill();
       ctx.fillStyle = '#222'; ctx.fillRect(x - 2.5, y - 0.3, 5, 0.6);
+    }
+  }
+
+  // Dragon Ascent: the streamlined body turned vertical, rocketing up or diving down, wrapped in light
+  drawAscending(e, now, fastA) {
+    const ctx = this.ctx;
+    const fw = fastA.img.width / fastA.n, fh = fastA.img.height;
+    const frame = Math.floor(now / 45) % fastA.n;
+    const up = e.ascend.phase === 'up';
+    const mega = e.form === 'megarayquaza';
+    const cx = e.rx, cy = e.ry - (e.lift || 0) - fw / 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = mega ? [255, 190, 60] : [90, 255, 150];
+    for (const [rx, a] of [[fh * 0.9, 0.18], [fh * 0.55, 0.3]]) {
+      ctx.fillStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${a})`;
+      ctx.beginPath(); ctx.ellipse(0, 0, rx, fw / 2 + 8, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.scale(e.face, 1);
+    ctx.rotate(up ? -Math.PI / 2 : Math.PI / 2);
+    ctx.drawImage(fastA.img, frame * fw, 0, fw, fh, -fw / 2, -fh / 2, fw, fh);
+    ctx.restore();
+  }
+
+  // launch: a pillar of light, shockwave and spiralling sparks where Rayquaza took off
+  ascentFx(f, t, now) {
+    const ctx = this.ctx;
+    const c = f.m ? [255, 196, 70] : [100, 255, 160];
+    const rgba = (a) => `rgba(${c[0]},${c[1]},${c[2]},${Math.max(0, a)})`;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const w = 16 * (1 - t) + 3;
+    ctx.fillStyle = rgba(0.45 * (1 - t)); ctx.fillRect(f.x - w, f.y - 320, w * 2, 320);
+    ctx.fillStyle = `rgba(255,255,240,${0.8 * (1 - t)})`; ctx.fillRect(f.x - w * 0.3, f.y - 320, w * 0.6, 320);
+    for (let i = 0; i < 2; i++) {
+      const rr = 8 + (t + i * 0.25) * 40;
+      ctx.strokeStyle = rgba(1 - t); ctx.lineWidth = 2.5 * (1 - t) + 0.5;
+      ctx.beginPath(); ctx.ellipse(f.x, f.y, rr, rr * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    for (let j = 0; j < 14; j++) {
+      const a = j * 0.9 + t * 9, rr = 10 + (j % 4) * 3;
+      ctx.fillStyle = j % 2 ? rgba(1 - t) : `rgba(255,255,255,${1 - t})`;
+      ctx.fillRect(f.x + Math.cos(a) * rr, f.y - t * 160 - j * 9 + Math.sin(a) * 3, 2, 2);
+    }
+    ctx.restore();
+  }
+
+  // warning: a pulsing target circle on the ground where Rayquaza will land
+  markFx(f, t, now) {
+    const ctx = this.ctx;
+    const c = f.m ? '255,170,40' : '255,80,80';
+    const pulse = 0.5 + Math.sin(now / 70) * 0.5;
+    ctx.save();
+    ctx.fillStyle = `rgba(${c},${0.12 + 0.18 * t})`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r, f.r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(${c},${0.5 + 0.5 * pulse})`; ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]); ctx.lineDashOffset = -now / 30;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r, f.r * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    const rr = f.r * (1 - t);
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, rr, rr * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // the dive: a meteor streak of light coming down out of the sky
+  diveFx(f, t, now) {
+    const ctx = this.ctx;
+    const c = f.m ? [255, 196, 70] : [100, 255, 160];
+    const headY = f.y - 280 * (1 - t);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (const [w, a] of [[18, 0.25], [9, 0.55], [3, 0.95]]) {
+      ctx.strokeStyle = w === 3 ? `rgba(255,255,235,${a})` : `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+      ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(f.x, headY - 120); ctx.lineTo(f.x, headY); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // impact: flash, three shockwaves, ground cracks, flying rocks, dust and embers
+  quakeFx(f, t, now) {
+    const ctx = this.ctx;
+    const r = (f.r || 48) * 1.6;
+    const c = f.m ? [255, 186, 50] : [90, 240, 140];
+    const rgba = (cc, a) => `rgba(${cc[0]},${cc[1]},${cc[2]},${Math.max(0, a)})`;
+    // ground cracks + scorched crater
+    ctx.fillStyle = `rgba(30,25,20,${0.45 * (1 - t)})`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y + 2, r * 0.6, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(30,22,18,${0.8 * (1 - t)})`; ctx.lineWidth = 1.5;
+    for (let j = 0; j < 9; j++) {
+      const a = j * 0.698 + 0.3;
+      ctx.beginPath(); ctx.moveTo(f.x, f.y);
+      let px = f.x, py = f.y;
+      for (let k = 1; k <= 4; k++) {
+        const d = r * 0.25 * k;
+        px = f.x + Math.cos(a + ((j * 7 + k * 3) % 5 - 2) * 0.12) * d;
+        py = f.y + Math.sin(a + ((j * 5 + k) % 5 - 2) * 0.12) * d * 0.5;
+        ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (t < 0.12) {
+      ctx.fillStyle = `rgba(255,255,240,${1 - t / 0.12})`;
+      ctx.beginPath(); ctx.ellipse(f.x, f.y - 6, r * 1.2, r * 0.9, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    // light column fading out
+    ctx.fillStyle = rgba(c, 0.5 * Math.max(0, 1 - t * 2.5));
+    ctx.fillRect(f.x - r * 0.25, f.y - 260, r * 0.5, 260);
+    for (const [sp, w, cc] of [[2.2, 4, [255, 255, 230]], [1.6, 3, c], [1.0, 2, c]]) {
+      const rr = r * (0.15 + t * sp);
+      ctx.strokeStyle = rgba(cc, 1 - t); ctx.lineWidth = w * (1 - t) + 0.5;
+      ctx.beginPath(); ctx.ellipse(f.x, f.y, rr, rr * 0.5, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    for (let j = 0; j < 14; j++) {
+      const ex = f.x + Math.sin(j * 5.1) * r * 0.7, ey = f.y - t * (30 + (j % 5) * 8) - 4;
+      ctx.fillStyle = rgba(j % 2 ? c : [255, 255, 200], 1 - t);
+      ctx.fillRect(ex - 1, ey - 1, 2, 2);
+    }
+    ctx.restore();
+    // rocks flung outward on arcs
+    for (let j = 0; j < 12; j++) {
+      const a = j * 0.5236 + 0.2, d = r * (0.2 + t * 1.1);
+      const rx = f.x + Math.cos(a) * d, ry = f.y + Math.sin(a) * d * 0.5 - Math.sin(t * Math.PI) * (14 + (j % 3) * 6);
+      ctx.fillStyle = `rgba(${110 + (j % 3) * 20},${95 + (j % 3) * 15},75,${1 - t})`;
+      const sz = 3 - (j % 2);
+      ctx.fillRect(rx - sz / 2, ry - sz / 2, sz, sz);
+    }
+    // dust ring
+    ctx.fillStyle = `rgba(190,170,130,${0.35 * (1 - t)})`;
+    for (let j = 0; j < 16; j++) {
+      const a = j * 0.3927, d = r * (0.6 + t * 0.9);
+      ctx.beginPath(); ctx.arc(f.x + Math.cos(a) * d, f.y + Math.sin(a) * d * 0.5, 3 + t * 5, 0, 7); ctx.fill();
     }
   }
 

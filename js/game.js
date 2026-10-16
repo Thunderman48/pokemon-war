@@ -195,6 +195,9 @@ export class Game {
       if (!this.world.vis[this.pid][Math.floor(y / TILE) * this.world.w + Math.floor(x / TILE)]) continue;
       if (f.k === 'p') sfx(f.s === 'breath' || f.s === 'megabreath' ? 'breath' : 'shot');
       else if (f.k === 'boom') { sfx('boom'); r.shake(performance.now(), f.m ? 5 : 3.5); }
+      else if (f.k === 'ascent') sfx('ascent');
+      else if (f.k === 'dive') sfx('dive');
+      else if (f.k === 'quake') { sfx('quake'); r.shake(performance.now(), f.m ? 11 : 9); }
       else if (f.k === 'hit') sfx('hit');
       else if (f.k === 'die') sfx('die');
     }

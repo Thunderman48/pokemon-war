@@ -181,6 +181,7 @@ export class World {
 
   // melee attackers can't reach flying Pokémon
   canHit(a, t) {
+    if (t.ascend) return false; // high in the sky during Dragon Ascent
     if (!isFlying(t)) return true;
     if (a.kind === 'building') return true;
     return UNITS[a.type].range >= 1;
@@ -620,6 +621,7 @@ export class World {
     u.scanT -= dt;
     u.moving = false;
     if (u.sleep > 0) { u.sleep -= dt; return; }
+    if (u.ascend) { this.updateAscent(u, dt); return; }
     // pushed into a building footprint? pop out
     if (!isFlying(u) && this.blockedAt(u.x, u.y)) {
       const f = this.nearestFree(Math.floor(u.x / TILE), Math.floor(u.y / TILE), 5);
@@ -855,6 +857,53 @@ export class World {
         e.path = null; e.pathKey = null;
       });
       this.fx.push({ k: 'sleep', x: x | 0, y: y | 0, r: r | 0 });
+    } else if (key === 'ascent') {
+      const dmg = ab.dmg * (1 + 0.6 * stage) * (1 + 0.15 * this.rlevel(u.owner, 'attack'));
+      u.ascend = { t: 0, x, y, phase: 'up', dmg, r, m: stage ? 1 : 0 };
+      u.face = x >= u.x ? 1 : -1;
+      u.path = null; u.pathKey = null;
+      this.fx.push({ k: 'ascent', x: u.x | 0, y: u.y | 0, m: stage ? 1 : 0 });
+      this.fx.push({ k: 'mark', x: x | 0, y: y | 0, r: r | 0, d: ab.rise + ab.dive, m: stage ? 1 : 0 });
+    }
+  }
+
+  // Dragon Ascent: rocket up off the top of the screen, reappear above the target, dive, impact.
+  updateAscent(u, dt) {
+    const ab = ABILITIES.ascent, a = u.ascend;
+    const SKY = 280;
+    a.t += dt;
+    u.moving = true;
+    if (a.phase === 'up') {
+      const k = Math.min(1, a.t / ab.rise);
+      u.lift = k * k * SKY;
+      if (a.t >= ab.rise) {
+        a.phase = 'down'; a.t = 0;
+        u.x = u.px = a.x; u.y = u.py = a.y;
+        this.fx.push({ k: 'dive', x: a.x | 0, y: a.y | 0, d: ab.dive, m: a.m });
+      }
+      return;
+    }
+    const k = Math.min(1, a.t / ab.dive);
+    u.lift = (1 - k) * SKY;
+    if (k < 1) return;
+    // impact!
+    u.lift = 0;
+    u.ascend = null;
+    u.order = { type: 'idle' };
+    this.fx.push({ k: 'quake', x: a.x | 0, y: a.y | 0, r: a.r | 0, m: a.m });
+    this.nearUnits(a.x, a.y, a.r + 16, (e) => {
+      if (e.owner === u.owner || !this.ents.has(e.id) || e.ascend) return;
+      const d = Math.hypot(e.x - a.x, e.y - a.y);
+      if (d > a.r + e.radius) return;
+      // knock them outward
+      const push = 10 * (1 - d / (a.r + e.radius)) + 2, ux = d ? (e.x - a.x) / d : 1, uy = d ? (e.y - a.y) / d : 0;
+      const nx = e.x + ux * push, ny = e.y + uy * push;
+      if (!this.blockedFor(e, nx, ny)) { e.x = nx; e.y = ny; }
+      this.damage(e, a.dmg * effectiveness('dragon', FORMS[e.form].type) * (d < a.r * 0.5 ? 1 : 0.75), u.id, u.owner);
+    });
+    for (const b of [...this.ents.values()]) {
+      if (b.kind !== 'building' || b.owner === u.owner) continue;
+      if (this.edgeDist({ x: a.x, y: a.y, radius: 0 }, b) <= a.r) this.damage(b, a.dmg * 0.6, u.id, u.owner);
     }
   }
 
@@ -1111,9 +1160,10 @@ export class World {
         const flags = (x.moving ? 1 : 0) | (x.anim > 0 ? 2 : 0) | (x.carry.kind === 'berry' && x.carry.amt ? 4 : 0) |
           (x.carry.kind === 'crystal' && x.carry.amt ? 8 : 0) | (x.order.type === 'idle' ? 16 : 0) |
           (x.order.type === 'gather' ? 32 : 0) | (x.order.type === 'build' ? 64 : 0) | (x.order.type === 'attack' ? 128 : 0) |
-          (x.sleep > 0 ? 256 : 0) | (x.evoReady ? 512 : 0) | (x.order.type === 'cast' ? 1024 : 0);
+          (x.sleep > 0 ? 256 : 0) | (x.evoReady ? 512 : 0) | (x.order.type === 'cast' ? 1024 : 0) |
+          (x.ascend ? (x.ascend.phase === 'up' ? 2048 : 4096) : 0);
         e.push([0, x.id, UNIT_KEYS.indexOf(x.type), x.owner, r1(x.x), r1(x.y), Math.ceil(x.hp), x.maxHp,
-          FORM_KEYS.indexOf(x.form), Math.floor(x.xp), flags, x.face, x.acd > 0 ? r1(x.acd) : 0]);
+          FORM_KEYS.indexOf(x.form), Math.floor(x.xp), flags, x.face, x.acd > 0 ? r1(x.acd) : 0, x.lift ? Math.round(x.lift) : 0]);
       } else if (x.kind === 'building') {
         e.push([1, x.id, BUILDING_KEYS.indexOf(x.type), x.owner, x.tx, x.ty, Math.ceil(x.hp), x.maxHp,
           x.built ? 1 : Math.round(x.progress * 1000) / 1000,
@@ -1160,6 +1210,8 @@ export class World {
         x.evoReady = !!(f & 512);
         x.face = a[11];
         x.acd = a[12];
+        x.lift = a[13] || 0;
+        x.ascend = f & 2048 ? { phase: 'up' } : f & 4096 ? { phase: 'down' } : null;
       } else if (a[0] === 1) {
         if (!x) { x = this.addBuilding(BUILDING_KEYS[a[2]], a[3], a[4], a[5], a[8] === 1, id); structural = true; }
         x.hp = a[6]; x.maxHp = a[7];

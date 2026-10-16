@@ -523,6 +523,16 @@ ICONS = {
         "..LLLL..",
         "...LL...",
     ],
+    "ascent": [
+        "...yy...",
+        "..yLLy..",
+        ".yL..Ly.",
+        "...LL...",
+        "..LyyL..",
+        "...LL...",
+        "..L..L..",
+        ".L....L.",
+    ],
     "sleep": [
         "PPPPP...",
         "...P....",
@@ -782,7 +792,14 @@ def main():
     for k, fn in (("rayquaza", rq.rayquaza), ("megarayquaza", rq.mega_rayquaza)):
         imgs[k] = fn()
         save(imgs[k], "units", k + ".png")
-        save(rq.sheet(fn), "units", k + "_anim.png")  # flying animation frames
+        save(rq.sheet(fn), "units", k + "_anim.png")  # idle hover frames (mouth closed / open rows)
+    save(rq.fast_sheet(rq.rayquaza_fast), "units", "rayquaza_fast.png")  # fast flight frames
+    save(rq.fast_sheet(rq.mega_rayquaza_fast), "units", "megarayquaza_fast.png")
+    # detailed final evolutions (see tools/detailed.py)
+    import detailed
+    for k in ("charizard", "pidgeot", "golem"):
+        imgs[k] = getattr(detailed, k)()
+        save(imgs[k], "units", k + ".png")
     for k in ("berry", "crystal"):
         imgs[k] = sprite_image(SPRITES[k])
         save(imgs[k], "res", k + ".png")

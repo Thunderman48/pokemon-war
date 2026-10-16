@@ -12,7 +12,7 @@ const LINE_RESEARCH = {
   charmander: ['evo_charmeleon', 'evo_charizard'], squirtle: ['evo_wartortle', 'evo_blastoise', 'move_heal'],
   bulbasaur: ['evo_ivysaur', 'evo_venusaur', 'move_sleep'], geodude: ['evo_graveler', 'evo_golem'],
   pidgey: ['evo_pidgeotto', 'evo_pidgeot'], pikachu: ['thunderstone', 'move_thunder'],
-  eevee: ['waterstone', 'thunderstone', 'firestone'], rayquaza: ['megastone'],
+  eevee: ['waterstone', 'thunderstone', 'firestone'], rayquaza: ['megastone', 'move_ascent'],
 };
 
 export class AI {

@@ -114,6 +114,27 @@ g.applySnapshot(JSON.parse(JSON.stringify(w.snapshot())), 1);
 const gr = g.ents.get(ray.id);
 ok(gr && gr.form === 'megarayquaza' && g.players[0].research.megastone === 1, 'snapshot keeps forms and research');
 
+// Dragon Ascent: Rayquaza flies up (untargetable), dives onto the target, damages and knocks back
+P.research.move_ascent = 1;
+const rq = w.addUnit('rayquaza', 0, 10 * TILE, 40 * TILE);
+const victims = [0, 1, 2].map((i) => w.addUnit('snorlax', 1, 18 * TILE + i * 22, 40 * TILE));
+w.buildHash();
+const vx = victims.map((v) => v.x);
+w.issue(0, { c: 'cast', ids: [rq.id], key: 'ascent', x: 18 * TILE + 10, y: 40 * TILE });
+run(w, 0.5);
+const archer = w.addUnit('bulbasaur', 1, rq.x + 20, rq.y);
+ok(!!rq.ascend && rq.lift > 0 && !w.canHit(archer, rq), `Rayquaza is high in the sky and untargetable (lift ${Math.round(rq.lift)})`);
+const mid = JSON.parse(JSON.stringify(w.snapshot()));
+const g2 = new World({ seed: 99, players: [{}, {}], sim: false });
+g2.applySnapshot(mid, 1);
+ok(g2.ents.get(rq.id).ascend && g2.ents.get(rq.id).lift > 0, 'snapshot carries the ascent state to the guest');
+let guard = 0;
+while (rq.ascend && guard++ < 100) w.update(0.05);
+ok(!rq.ascend && Math.hypot(rq.x - (18 * TILE + 10), rq.y - 40 * TILE) < 3, 'Rayquaza landed on the target spot');
+ok(victims.every((v) => !w.ents.has(v.id) || v.hp < v.maxHp - 100), 'the dive hit every enemy in the area hard');
+ok(victims.some((v, i) => w.ents.has(v.id) && Math.abs(v.x - vx[i]) > 2), 'enemies were knocked back');
+ok(rq.acd > 0, 'Dragon Ascent is on cooldown');
+
 // destroying the last Pokémon Center ends the game, even if other buildings remain
 const w2 = new World({ seed: 5, players: [{}, {}] });
 const c1 = w2.buildingsOf(1)[0];

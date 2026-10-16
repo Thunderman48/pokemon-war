@@ -19,7 +19,7 @@ Gather berries and crystals, build up your base, train Pokémon, evolve them in 
 - **Flying units** fly over trees and water. Close-range fighters (Machop, Snorlax) can't hit them.
 - **New building**: the Sky Pillar trains flying Pokémon and Rayquaza, and researches the Mega Stone.
 - **More research**: Attack/Defense levels 1–3. Economy: Harvest, Big Bag, Mart Expansion. Buildings: Fortify, Training Drill, Tower Upgrade.
-- **Special moves** you aim with a tap: Thunder (area damage), Heal Pulse (area heal) and Sleep Powder (puts enemies to sleep).
+- **Special moves** you aim with a tap: Thunder (area damage), Heal Pulse (area heal), Sleep Powder (puts enemies to sleep) and Rayquaza's **Dragon Ascent** (rockets into the sky, then dives onto an area).
 - More types: Flying, Rock and Dragon.
 - The original game is still playable at `/v1/` (and saved on the `v1` branch).
 
@@ -40,7 +40,7 @@ Gather berries and crystals, build up your base, train Pokémon, evolve them in 
 | Gym | 150 | Charmander, Squirtle, Bulbasaur, Geodude, Eevee, Pikachu* | Thunder, Heal Pulse, Sleep Powder |
 | Lab (needs Gym) | 150 / 100 | Snorlax | Attack, Defense, every evolution, Thunder/Water/Fire Stone |
 | Tower (needs Gym) | 100 / 50 | | Defensive, hits flyers |
-| Sky Pillar (needs Lab) | 300 / 250 | Pidgey, Rayquaza (max 1) | Mega Stone |
+| Sky Pillar (needs Lab) | 300 / 250 | Pidgey, Rayquaza (max 1) | Mega Stone, Dragon Ascent |
 
 \*Pikachu needs a Lab.
 
