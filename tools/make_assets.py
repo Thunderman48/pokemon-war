@@ -431,45 +431,6 @@ SPRITES = {
         "...hhh........hhh....",
         "...HHH........HHH....",
     ],
-    "rayquaza": [
-        "..............................vv....",
-        "...........................vvvvv.v..",
-        "..........................vvvvvvvvv.",
-        ".........vvvv............vvvvvwkvvvv",
-        ".......vvvvvvvv.........vvvvvvvvvvvv",
-        "......vvvyyvvvvv.......vvvvvvvvVrrr.",
-        ".....vvvvvvvvvvvv.....vvvvvvvvVV....",
-        ".....vvvV....vvvvv...vvvyyvvvV......",
-        "....vvvV......vvvvv.vvvvvvvvV.......",
-        "....vvyV.......vvvvvvvvvvvVV........",
-        "...vvvvV........vvvyyvvvVV..........",
-        "...vvvV..........VvvvvVV............",
-        "..vvvV.............VVV..............",
-        ".vvvV...............................",
-        "vvvV................................",
-        "vyV.................................",
-    ],
-    "megarayquaza": [
-        "..........................................VV....",
-        ".......................................VVVVV.V..",
-        "..............jjjjjjjjjjj.............VVVVVVVVV.",
-        "........jjjjjj...........jjjjjjjjjjjjVVVVVwkVVVV",
-        "....jjjjj.........VVVV..............VVVVVVVVVVVV",
-        "..jjj.......VVVVVVVVVVVVV..........VVVVVVVVVVrrr",
-        ".jj........VVVlvvvlVVVVVVVV.......VVVVVVVVVV....",
-        "jj........VVVvvvvvvvVVVVVVVVV....VVVVlVVVV......",
-        "j........VVVVV.......VVVVVVVVV..VVVVvvVVV.......",
-        ".........VVVlV.........VVVVVVVVVVVVvvvVVV.......",
-        "........VVVVV...........VVVVVVVVVlvvVVVV........",
-        "........VVVV.............VVVVVVVVvvVVV..........",
-        ".......VVVV................VVVVVVVVV............",
-        "......VVVV..................VVVVV...............",
-        ".....VVV........................................",
-        "....VVV.........................................",
-        "...VV...........................................",
-        "..jj............................................",
-        ".jj.............................................",
-    ],
     "berry": [
         ".....gg.gg.....",
         "...ggggggggg...",
@@ -814,6 +775,12 @@ def main():
     imgs = {}
     for k in units:
         imgs[k] = sprite_image(SPRITES[k])
+        save(imgs[k], "units", k + ".png")
+    # Rayquaza and Mega Rayquaza are drawn procedurally (see tools/rayquaza.py)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import rayquaza as rq
+    for k, fn in (("rayquaza", rq.rayquaza), ("megarayquaza", rq.mega_rayquaza)):
+        imgs[k] = fn()
         save(imgs[k], "units", k + ".png")
     for k in ("berry", "crystal"):
         imgs[k] = sprite_image(SPRITES[k])

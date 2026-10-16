@@ -87,7 +87,7 @@ export const UNITS = {
   },
   rayquaza: {
     name: 'Rayquaza', hp: 1400, dmg: 34, cd: 1.5, range: 4, speed: 2.6, sight: 10,
-    cost: { b: 400, c: 500 }, time: 60, pop: 10, radius: 12, proj: 'breath', splash: 1.4, siege: 1.5,
+    cost: { b: 400, c: 500 }, time: 60, pop: 10, radius: 14, proj: 'breath', splash: 1.4, siege: 1.5,
     flying: true, limit: 1,
     desc: 'Legendary sky dragon. Dragon Breath hits an area. Only one allowed.',
   },
@@ -122,8 +122,8 @@ export const FORMS = {
   pidgey: { line: 'pidgey', name: 'Pidgey', type: 'flying', stage: 0, next: [{ to: 'pidgeotto', r: 'evo_pidgeotto' }] },
   pidgeotto: { line: 'pidgey', name: 'Pidgeotto', type: 'flying', stage: 1, next: [{ to: 'pidgeot', r: 'evo_pidgeot' }] },
   pidgeot: { line: 'pidgey', name: 'Pidgeot', type: 'flying', stage: 2 },
-  rayquaza: { line: 'rayquaza', name: 'Rayquaza', type: 'dragon', stage: 0, scale: 1.2, next: [{ to: 'megarayquaza', r: 'megastone' }] },
-  megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, scale: 1.3, mult: { hp: 2, dmg: 1.8, range: 1.5, speed: 1.2 } },
+  rayquaza: { line: 'rayquaza', name: 'Rayquaza', type: 'dragon', stage: 0, next: [{ to: 'megarayquaza', r: 'megastone' }] },
+  megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, mult: { hp: 2, dmg: 1.8, range: 1.5, speed: 1.2 } },
 };
 
 export const BUILDINGS = {
