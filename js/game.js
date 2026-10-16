@@ -593,10 +593,8 @@ export class Game {
     if (!p) return;
     if (!this.world.canPlace(p.type, p.tx, p.ty, this.pid)) { this.toast("Can't build there", 'warn'); sfx('error'); return; }
     const workers = this.selectedWorkers();
-    // send the closest worker
-    const cx = (p.tx + 1) * TILE, cy = (p.ty + 1) * TILE;
-    workers.sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
-    this.issue({ c: 'build', ids: [workers[0].id], type: p.type, tx: p.tx, ty: p.ty });
+    // every selected worker helps build
+    this.issue({ c: 'build', ids: workers.map((u) => u.id), type: p.type, tx: p.tx, ty: p.ty });
     sfx('order');
     this.cancelPlacement();
     this.buildMenu = false;

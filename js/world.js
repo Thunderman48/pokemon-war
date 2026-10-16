@@ -606,8 +606,11 @@ export class World {
         }
         if (this.approach(u, b, 6, dt, st)) {
           const bd = BUILDINGS[b.type];
-          b.progress += dt / bd.time;
-          b.hp = Math.min(b.maxHp, b.hp + (b.maxHp * 0.9 * dt) / bd.time);
+          // extra builders help, with diminishing returns (1, +0.6, +0.36, ...)
+          if (b.buildTick !== this.tick) { b.buildTick = this.tick; b.builders = 0; }
+          const rate = Math.pow(0.6, b.builders++);
+          b.progress += (dt * rate) / bd.time;
+          b.hp = Math.min(b.maxHp, b.hp + (b.maxHp * 0.9 * dt * rate) / bd.time);
           u.anim = 0.2;
           if (b.progress >= 1) this.completeBuilding(b);
         }
