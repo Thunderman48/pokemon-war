@@ -412,10 +412,11 @@ export class Renderer {
       const age = (now - f.start) / 1000;
       const life = f.k === 'p' ? f.d : f.k === 'evo' ? 1.4 : f.k === 'die' ? (f.b ? 0.9 : 0.5) : f.k === 'heal' ? 0.7 :
         f.k === 'zap' ? 0.5 : f.k === 'bolt' ? 0.6 : f.k === 'healp' ? 0.8 : f.k === 'sleep' ? 1.2 : f.k === 'boom' ? 1.0 :
-        f.k === 'ascent' ? 1.0 : f.k === 'mark' || f.k === 'dive' ? f.d : f.k === 'quake' ? 1.5 : 0.3;
+        f.k === 'ascent' ? 1.0 : f.k === 'mark' || f.k === 'dive' || f.k === 'drain' ? f.d : f.k === 'quake' ? 1.5 :
+        f.k === 'drained' ? 1.3 : 0.3;
       if (age > life) { this.fx.splice(i, 1); continue; }
       const t = age / life;
-      const fxX = f.k === 'p' ? f.x2 : f.x, fxY = f.k === 'p' ? f.y2 : f.y;
+      const fxX = f.k === 'p' ? f.x2 : f.k === 'drain' ? f.x1 : f.x, fxY = f.k === 'p' ? f.y2 : f.k === 'drain' ? f.y1 : f.y;
       const tx = Math.floor(fxX / TILE), ty = Math.floor(fxY / TILE);
       if (tx >= 0 && ty >= 0 && tx < world.w && ty < world.h && !world.vis[this.pid][ty * world.w + tx]) {
         if (f.k !== 'p') continue;
@@ -497,6 +498,27 @@ export class Renderer {
         this.diveFx(f, t, now);
       } else if (f.k === 'quake') {
         this.quakeFx(f, t, now);
+      } else if (f.k === 'drain') {
+        // life orbs flowing from each target into Rayquaza
+        const u = world.ents.get(f.id);
+        if (u) {
+          const ux = u.rx ?? u.x, uy = (u.ry ?? u.y) - this.lift(u, now) - 10;
+          const k = t * t * (3 - 2 * t);
+          const ox = f.x1 + (ux - f.x1) * k, oy = f.y1 + (uy - f.y1) * k - Math.sin(t * Math.PI) * 18;
+          ctx.save(); ctx.globalCompositeOperation = 'lighter';
+          ctx.fillStyle = f.m ? 'rgba(255,200,80,0.45)' : 'rgba(110,255,150,0.45)';
+          ctx.beginPath(); ctx.arc(ox, oy, 4.5, 0, 7); ctx.fill();
+          ctx.fillStyle = '#f2fff0'; ctx.beginPath(); ctx.arc(ox, oy, 1.8, 0, 7); ctx.fill();
+          ctx.restore();
+        }
+      } else if (f.k === 'drained') {
+        // +HP pop-up and a green ring around Rayquaza
+        ctx.strokeStyle = `rgba(120,255,150,${1 - t})`; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(f.x, f.y, 14 + t * 14, (14 + t * 14) * 0.5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = `rgba(20,40,20,${1 - t})`; ctx.fillText(`+${f.amt}`, f.x + 1, f.y - 30 - t * 14 + 1);
+        ctx.fillStyle = `rgba(140,255,160,${1 - t})`; ctx.fillText(`+${f.amt}`, f.x, f.y - 30 - t * 14);
+        ctx.textAlign = 'left';
       } else if (f.k === 'boom') {
         this.dragonBoom(f, t, now);
       } else if (f.k === 'done') {

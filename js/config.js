@@ -5,6 +5,10 @@ export const TILE = 16;
 export const MAP_SIZE = 64;
 export const TICK = 1 / 20; // simulation step (seconds)
 export const MAX_POP = 120;
+// out-of-combat regeneration: after REGEN_DELAY seconds without dealing or taking damage,
+// Pokémon heal REGEN_RATE of their max HP per second
+export const REGEN_DELAY = 5;
+export const REGEN_RATE = 0.02;
 
 export const TEAM_COLORS = ['#3d8bff', '#ff4d4d'];
 export const TEAM_NAMES = ['Blue', 'Red'];
@@ -86,7 +90,7 @@ export const UNITS = {
     desc: 'Flies over trees and water. Strong vs Grass & Fighting.',
   },
   rayquaza: {
-    name: 'Rayquaza', hp: 1400, dmg: 34, cd: 1.5, range: 4, speed: 2.6, sight: 10,
+    name: 'Rayquaza', hp: 1100, dmg: 27, cd: 1.5, range: 4, speed: 2.6, sight: 10,
     cost: { b: 400, c: 500 }, time: 60, pop: 10, radius: 11, proj: 'breath', splash: 1.4, siege: 1.5,
     flying: true, limit: 1,
     desc: 'Legendary sky dragon. Dragon Breath hits an area. Only one allowed.',
@@ -123,15 +127,14 @@ export const FORMS = {
   pidgeotto: { line: 'pidgey', name: 'Pidgeotto', type: 'flying', stage: 1, next: [{ to: 'pidgeot', r: 'evo_pidgeot' }] },
   pidgeot: { line: 'pidgey', name: 'Pidgeot', type: 'flying', stage: 2 },
   rayquaza: { line: 'rayquaza', name: 'Rayquaza', type: 'dragon', stage: 0, mouth: [66, -42], anim: 8, fast: 8, ability: 'ascent', next: [{ to: 'megarayquaza', r: 'megastone' }] },
-  megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, mouth: [71, -48], anim: 8, fast: 8, ability: 'ascent', proj: 'megabreath', mult: { hp: 2, dmg: 1.8, range: 1.5, speed: 1.2 } },
+  megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, mouth: [71, -48], anim: 8, fast: 8, ability: 'ascent', proj: 'megabreath', mult: { hp: 1.8, dmg: 1.6, range: 1.5, speed: 1.2 } },
 };
 
 export const BUILDINGS = {
   center: {
     name: 'Pokémon Center', short: 'CENTER', w: 3, h: 3, hp: 1500, cost: { b: 400, c: 0 }, time: 60, pop: 10, sight: 8,
     trains: ['machop'], dropoff: true, heal: true,
-    research: ['harvest', 'bigbag', 'martplus', 'fortify', 'drill', 'towerup'],
-    desc: 'HQ. Trains workers, stores resources, heals nearby Pokémon. Economy & building upgrades.',
+    desc: 'HQ. Trains workers, stores resources, heals nearby Pokémon.',
   },
   mart: {
     name: 'Poké Mart', short: 'MART', w: 2, h: 2, hp: 450, cost: { b: 100, c: 0 }, time: 20, pop: 10, sight: 5,
@@ -139,16 +142,17 @@ export const BUILDINGS = {
   },
   gym: {
     name: 'Gym', short: 'GYM', w: 3, h: 3, hp: 1000, cost: { b: 150, c: 0 }, time: 35, sight: 6,
-    trains: ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee', 'pikachu'],
-    research: ['move_thunder', 'move_heal', 'move_sleep'],
-    desc: 'Trains battle Pokémon and teaches special moves.',
+    trains: ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee', 'pikachu', 'snorlax'],
+    desc: 'Trains battle Pokémon. Snorlax needs a Lab.',
   },
   lab: {
     name: 'Lab', short: 'LAB', w: 3, h: 3, hp: 800, cost: { b: 150, c: 100 }, time: 40, sight: 6, req: 'gym',
-    trains: ['snorlax'],
-    research: ['attack', 'defense', 'evo_charmeleon', 'evo_charizard', 'evo_wartortle', 'evo_blastoise', 'evo_ivysaur',
-      'evo_venusaur', 'evo_graveler', 'evo_golem', 'evo_pidgeotto', 'evo_pidgeot', 'thunderstone', 'waterstone', 'firestone'],
-    desc: 'Evolution research, combat upgrades. Unlocks Pikachu and Snorlax.',
+    // every research in the game lives here (MORE flips through the pages)
+    research: ['attack', 'defense', 'harvest', 'drill', 'evo_charmeleon', 'evo_wartortle', 'evo_ivysaur', 'evo_graveler',
+      'thunderstone', 'waterstone', 'firestone', 'move_heal', 'move_sleep', 'move_thunder', 'evo_charizard', 'evo_blastoise',
+      'evo_venusaur', 'evo_golem', 'bigbag', 'martplus', 'fortify', 'towerup', 'evo_pidgeotto', 'evo_pidgeot',
+      'megastone', 'move_ascent'],
+    desc: 'All research: evolutions, moves, combat, economy and building upgrades. Unlocks Pikachu and Snorlax.',
   },
   tower: {
     name: 'Tower', short: 'TOWER', w: 2, h: 2, hp: 550, cost: { b: 100, c: 50 }, time: 30, sight: 8, req: 'gym',
@@ -157,8 +161,8 @@ export const BUILDINGS = {
   },
   skypillar: {
     name: 'Sky Pillar', short: 'PILLAR', w: 3, h: 3, hp: 1200, cost: { b: 300, c: 250 }, time: 60, sight: 9, req: 'lab',
-    trains: ['pidgey', 'rayquaza'], research: ['megastone', 'move_ascent'],
-    desc: 'Trains flying Pokémon and the legendary Rayquaza.',
+    trains: ['pidgey', 'rayquaza'],
+    desc: 'Trains flying Pokémon and the legendary Rayquaza. Unlocks Mega Stone & Dragon Ascent research.',
   },
 };
 
@@ -181,10 +185,10 @@ export const RESEARCH = {
   thunderstone: { name: 'Thunder Stone', icon: 'i:thunderstone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Pikachu → Raichu and Eevee → Jolteon.' },
   waterstone: { name: 'Water Stone', icon: 'i:waterstone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Eevee → Vaporeon.' },
   firestone: { name: 'Fire Stone', icon: 'i:firestone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Eevee → Flareon.' },
-  megastone: { name: 'Mega Stone', icon: 'i:megastone', cost: { b: 400, c: 400 }, time: 60, group: 'evo', desc: 'Rayquaza → Mega Rayquaza.' },
+  megastone: { name: 'Mega Stone', icon: 'i:megastone', cost: { b: 400, c: 400 }, time: 60, group: 'evo', reqB: 'skypillar', desc: 'Rayquaza → Mega Rayquaza.' },
   move_thunder: { name: 'Thunder', icon: 'i:thunder', cost: { b: 150, c: 125 }, time: 40, reqB: 'lab', desc: 'Pikachu, Raichu & Jolteon can call down lightning on an area.' },
   move_heal: { name: 'Heal Pulse', icon: 'i:heal', cost: { b: 125, c: 100 }, time: 35, desc: 'Squirtle line & Vaporeon heal nearby allies.' },
-  move_ascent: { name: 'Dragon Ascent', icon: 'i:ascent', cost: { b: 250, c: 250 }, time: 50, desc: 'Rayquaza soars into the sky, then dives onto an area for massive damage.' },
+  move_ascent: { name: 'Dragon Ascent', icon: 'i:ascent', cost: { b: 250, c: 250 }, time: 50, reqB: 'skypillar', desc: 'Rayquaza soars into the sky, then dives onto an area, draining life from everything it hits.' },
   move_sleep: { name: 'Sleep Powder', icon: 'i:sleep', cost: { b: 125, c: 100 }, time: 35, desc: 'Bulbasaur line puts enemies in an area to sleep.' },
   harvest: { name: 'Harvest', levels: 2, cost: { b: 100, c: 50 }, time: 35, desc: 'Workers gather 20% faster per level.' },
   bigbag: { name: 'Big Bag', cost: { b: 150, c: 50 }, time: 40, desc: 'Workers carry 50% more per trip.' },
@@ -208,7 +212,7 @@ export const ABILITIES = {
   heal: { name: 'Heal Pulse', research: 'move_heal', icon: 'heal', range: 6, radius: 2.5, cd: 20, amount: 100 },
   sleep: { name: 'Sleep Powder', research: 'move_sleep', icon: 'sleep', range: 6, radius: 2, cd: 30, dur: 4 },
   // Rayquaza's signature move: rockets straight up (untargetable), then dives onto the target area
-  ascent: { name: 'Dragon Ascent', research: 'move_ascent', icon: 'ascent', range: 11, radius: 3, cd: 40, dmg: 240, rise: 0.9, dive: 0.4 },
+  ascent: { name: 'Dragon Ascent', research: 'move_ascent', icon: 'ascent', range: 11, radius: 3, cd: 40, dmg: 190, rise: 0.9, dive: 0.4, drain: 0.6 },
 };
 
 export const RESOURCES = {

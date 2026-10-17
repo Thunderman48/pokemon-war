@@ -17,16 +17,17 @@ Gather berries and crystals, build up your base, train Pokémon, evolve them in 
   Pidgey → Pidgeotto → Pidgeot, and the legendary **Rayquaza → Mega Rayquaza**. Rayquaza is a huge flying dragon
   whose Dragon Breath hits an area, and you can only have one. Charizard can fly too.
 - **Flying units** fly over trees and water. Close-range fighters (Machop, Snorlax) can't hit them.
-- **New building**: the Sky Pillar trains flying Pokémon and Rayquaza, and researches the Mega Stone.
-- **More research**: Attack/Defense levels 1–3. Economy: Harvest, Big Bag, Mart Expansion. Buildings: Fortify, Training Drill, Tower Upgrade.
-- **Special moves** you aim with a tap: Thunder (area damage), Heal Pulse (area heal), Sleep Powder (puts enemies to sleep) and Rayquaza's **Dragon Ascent** (rockets into the sky, then dives onto an area).
+- **New building**: the Sky Pillar trains flying Pokémon and Rayquaza, and unlocks the Mega Stone and Dragon Ascent research.
+- **More research**, all at the Lab: Attack/Defense levels 1–3. Economy: Harvest, Big Bag, Mart Expansion. Buildings: Fortify, Training Drill, Tower Upgrade.
+- **Special moves** you aim with a tap: Thunder (area damage), Heal Pulse (area heal), Sleep Powder (puts enemies to sleep) and Rayquaza's **Dragon Ascent** (rockets into the sky, then dives onto an area, stealing life from everything it hits).
 - More types: Flying, Rock and Dragon.
+- **Passive regeneration**: Pokémon out of combat for 5 seconds heal 2% of their max HP per second.
 - The original game is still playable at `/v1/` (and saved on the `v1` branch).
 
 ## Features
 
 - **Classic RTS**: workers, two resources, supply, buildings, tech requirements, research, fog of war.
-- **VS Computer** on Easy, Normal or Hard. The AI researches, evolves, counters your army's types, uses special moves and attacks in waves.
+- **VS Computer** on Easy, Normal or Hard. The AI researches, evolves, counters your army's types, uses special moves, focus-fires weak or type-weak targets, pulls wounded Pokémon back to heal, gathers its army before attacking and retreats from fights it can't win.
 - **Online 1v1** with a 5-letter room code. Play is peer-to-peer over WebRTC (PeerJS), so no server is needed.
 - **Made for touch**: tap to select and command, drag to scroll, pinch to zoom, long-press to box-select, a minimap, and quick ARMY / IDLE / BASE buttons. Mouse and keyboard also work on desktop.
 - Can be installed to the home screen (PWA manifest) for fullscreen play.
@@ -35,14 +36,14 @@ Gather berries and crystals, build up your base, train Pokémon, evolve them in 
 
 | Building | Cost (berries / crystals) | Trains | Research |
 |---|---|---|---|
-| Pokémon Center | 400 | Machop | Harvest, Big Bag, Mart Expansion, Fortify, Training Drill, Tower Upgrade |
+| Pokémon Center | 400 | Machop | |
 | Poké Mart | 100 | | +10 supply |
-| Gym | 150 | Charmander, Squirtle, Bulbasaur, Geodude, Eevee, Pikachu* | Thunder, Heal Pulse, Sleep Powder |
-| Lab (needs Gym) | 150 / 100 | Snorlax | Attack, Defense, every evolution, Thunder/Water/Fire Stone |
+| Gym | 150 | Charmander, Squirtle, Bulbasaur, Geodude, Eevee, Pikachu\*, Snorlax\* | |
+| Lab (needs Gym) | 150 / 100 | | **All research**: Attack, Defense, every evolution, stones, special moves, Harvest, Big Bag, Mart Expansion, Fortify, Training Drill, Tower Upgrade, Mega Stone\*\*, Dragon Ascent\*\* |
 | Tower (needs Gym) | 100 / 50 | | Defensive, hits flyers |
-| Sky Pillar (needs Lab) | 300 / 250 | Pidgey, Rayquaza (max 1) | Mega Stone, Dragon Ascent |
+| Sky Pillar (needs Lab) | 300 / 250 | Pidgey, Rayquaza (max 1) | |
 
-\*Pikachu needs a Lab.
+\*Pikachu and Snorlax need a Lab. \*\*Mega Stone and Dragon Ascent also need a Sky Pillar.
 
 | Line | Type | Notes |
 |---|---|---|

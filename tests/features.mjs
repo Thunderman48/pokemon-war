@@ -1,6 +1,6 @@
 // Scripted checks for V2 features: node tests/features.mjs
 import { World, isFlying } from '../js/world.js';
-import { FORMS, TILE, EVO_XP } from '../js/config.js';
+import { FORMS, TILE, EVO_XP, BUILDINGS, RESEARCH } from '../js/config.js';
 
 let fails = 0;
 const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'} ${msg}`); if (!cond) fails++; };
@@ -41,7 +41,7 @@ ok(P.research.attack === 2, `Attack research reached level ${P.research.attack}`
 
 // Eevee choice
 w.issue(0, { c: 'research', id: lab.id, key: 'waterstone' });
-w.issue(0, { c: 'research', id: center.id, key: 'harvest' });
+w.issue(0, { c: 'research', id: lab.id, key: 'harvest' });
 run(w, 36);
 const ee = w.addUnit('eevee', 0, 220, 220);
 ee.xp = EVO_XP[1]; w.tryEvolve(ee);
@@ -72,7 +72,7 @@ ok(pillar.queue.filter((q) => q.u === 'rayquaza').length === 1, 'only one Rayqua
 run(w, 61);
 const ray = w.unitsOf(0).find((u) => u.type === 'rayquaza');
 ok(!!ray && isFlying(ray), 'Rayquaza trained and flies');
-w.issue(0, { c: 'research', id: pillar.id, key: 'megastone' });
+w.issue(0, { c: 'research', id: lab.id, key: 'megastone' });
 run(w, 61);
 ray.xp = EVO_XP[1]; w.tryEvolve(ray);
 ok(ray.form === 'megarayquaza', `Rayquaza -> Mega Rayquaza (${ray.form}, hp ${ray.maxHp})`);
@@ -86,9 +86,9 @@ const hurt = clump.filter((u) => u.hp < u.maxHp || !w.ents.has(u.id)).length;
 ok(hurt >= 3, `Dragon Breath splash hit ${hurt}/4 enemies`);
 
 // special moves
-w.issue(0, { c: 'research', id: gym.id, key: 'move_sleep' });
-w.issue(0, { c: 'research', id: gym.id, key: 'move_thunder' });
-run(w, 80);
+w.issue(0, { c: 'research', id: lab.id, key: 'move_sleep' });
+w.issue(0, { c: 'research', id: lab.id, key: 'move_thunder' });
+run(w, 90);
 const bulb = w.addUnit('bulbasaur', 0, 20 * TILE, 30 * TILE);
 const pika = w.addUnit('pikachu', 0, 20 * TILE, 31 * TILE);
 const targets = [0, 1, 2].map((i) => w.addUnit('charmander', 1, 24 * TILE + i * 10, 30 * TILE));
@@ -134,6 +134,32 @@ ok(!rq.ascend && Math.hypot(rq.x - (18 * TILE + 10), rq.y - 40 * TILE) < 3, 'Ray
 ok(victims.every((v) => !w.ents.has(v.id) || v.hp < v.maxHp - 100), 'the dive hit every enemy in the area hard');
 ok(victims.some((v, i) => w.ents.has(v.id) && Math.abs(v.x - vx[i]) > 2), 'enemies were knocked back');
 ok(rq.acd > 0, 'Dragon Ascent is on cooldown');
+
+// all research lives in the Lab; Snorlax is trained at the Gym
+ok(Object.keys(RESEARCH).every((k) => BUILDINGS.lab.research.includes(k)) &&
+  Object.keys(BUILDINGS).every((b) => b === 'lab' || !BUILDINGS[b].research), 'every research is at the Lab and only there');
+ok(BUILDINGS.gym.trains.includes('snorlax') && !BUILDINGS.lab.trains, 'Snorlax is trained at the Gym');
+
+// passive regeneration out of combat (share of max HP)
+const reg = w.addUnit('snorlax', 0, 4 * TILE, 60 * TILE);
+reg.hp = reg.maxHp * 0.5; reg.lastCombat = w.time;
+run(w, 3);
+ok(reg.hp === reg.maxHp * 0.5, 'no regeneration right after combat');
+run(w, 5);
+ok(reg.hp > reg.maxHp * 0.5 + reg.maxHp * 0.02 * 2, `regenerates out of combat (${Math.round(reg.hp)}/${reg.maxHp})`);
+
+// Dragon Ascent life steal
+rq.hp = rq.maxHp * 0.4;
+rq.acd = 0;
+const drainT = [0, 1].map((i) => w.addUnit('snorlax', 1, rq.x + 60 + i * 22, rq.y));
+w.buildHash();
+const hpBefore = rq.hp;
+w.issue(0, { c: 'cast', ids: [rq.id], key: 'ascent', x: rq.x + 70, y: rq.y });
+guard = 0;
+w.update(0.05);
+while (rq.ascend && guard++ < 100) w.update(0.05);
+ok(rq.hp > hpBefore + 50, `Dragon Ascent drained life (${Math.round(hpBefore)} -> ${Math.round(rq.hp)})`);
+void drainT;
 
 // destroying the last Pokémon Center ends the game, even if other buildings remain
 const w2 = new World({ seed: 5, players: [{}, {}] });

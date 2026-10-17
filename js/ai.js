@@ -1,5 +1,5 @@
 // Computer opponent. Plays through world.issue() just like a human would.
-import { UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, TILE, DIFFICULTY, researchCost } from './config.js';
+import { UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, TILE, DIFFICULTY, researchCost, effectiveness } from './config.js';
 
 // enemy's most common type -> good counters
 const COUNTER = {
@@ -27,7 +27,9 @@ export class AI {
     me.ai = true;
     this.timer = 1;
     this.wave = this.d.firstWave;
-    this.attacking = false;
+    this.state = 'build'; // build -> stage -> attack
+    this.stageT = 0;
+    this.retreat = new Set(); // wounded units pulled back to heal
     this.enemy = 1 - pid;
     const s = world.map.starts[pid];
     this.homeT = { x: s.tx + 1, y: s.ty + 1 };
@@ -100,6 +102,11 @@ export class AI {
     const homeBerries = [...W.ents.values()].filter((e) => e.kind === 'res' && e.type === 'berry' &&
       Math.hypot(e.tx - this.homeT.x, e.ty - this.homeT.y) < 12).length;
     if (homeBerries <= 2 && count('center') < 2 && W.time > 240) this.build('center', workers, false, this.expansion);
+    // smarter players expand before running dry
+    if (this.key !== 'easy' && count('center') < 2 && W.time > (this.key === 'hard' ? 300 : 420) && me.b > 450) this.build('center', workers, false, this.expansion);
+    // floating resources: turn them into more production
+    const maxGyms = this.key === 'hard' ? 4 : this.key === 'normal' ? 3 : 1;
+    if (count('gym', true) === count('gym') && count('gym') < maxGyms && W.time > 240 && me.b > 650) this.build('gym', workers);
 
     // --- research
     this.researchT -= this.d.think * this.d.research;
@@ -114,12 +121,11 @@ export class AI {
     const lab = blds.find((b) => b.type === 'lab' && b.built);
     for (const g of blds.filter((b) => b.type === 'gym' && b.built)) {
       if (g.queue.length >= 2) continue;
-      const t = this.pickUnit(enemyTypes, !!lab, false);
+      let t = this.pickUnit(enemyTypes, !!lab, false);
+      if (lab && army.length >= 6 && this.rand() < 0.15 && W.canAfford(pid, UNITS.snorlax.cost) && me.pop + 6 <= me.cap) t = 'snorlax';
       if (W.canAfford(pid, UNITS[t].cost) && me.pop + UNITS[t].pop <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
       if (!g.rally) this.setRally(g);
     }
-    if (lab && !lab.queue.some((q) => q.u) && army.length >= 6 && this.rand() < 0.3 && W.canAfford(pid, UNITS.snorlax.cost) && me.pop + 6 <= me.cap)
-      W.issue(pid, { c: 'train', id: lab.id, type: 'snorlax' });
     const pillar = blds.find((b) => b.type === 'skypillar' && b.built);
     if (pillar && !pillar.queue.some((q) => q.u)) {
       if (!pillar.rally) this.setRally(pillar);
@@ -134,31 +140,167 @@ export class AI {
     // Eevees are evolved automatically by the world for AI players
 
     // --- combat
-    const armyPop = army.reduce((s, u) => s + UNITS[u.type].pop, 0);
-    let threat = null;
-    for (const e of W.unitsOf(this.enemy)) {
-      for (const b of blds) if (Math.hypot(e.x - b.x, e.y - b.y) < 12 * TILE) { threat = e; break; }
-      if (threat) break;
+    this.combat(army, blds);
+  }
+
+  // hp x dps: a rough measure of how hard a group hits and how long it lasts
+  power(e) {
+    if (e.kind === 'building') {
+      const d = BUILDINGS[e.type];
+      return d.dmg ? e.hp * d.dmg / d.cd : 0;
     }
+    if (UNITS[e.type].worker) return 0;
+    const st = this.w.stats(e);
+    return Math.max(0, e.hp) * st.dmg / st.cd;
+  }
+
+  // Lanchester-ish strength of everything owned by `owner` within r of (x, y)
+  strength(owner, x, y, r, skip) {
+    let hp = 0, dps = 0;
+    const add = (e) => {
+      if (e.owner !== owner || (skip && skip.has(e.id)) || Math.hypot(e.x - x, e.y - y) > r) return;
+      const p = this.power(e);
+      if (!p) return;
+      hp += e.hp; dps += p / Math.max(1, e.hp);
+    };
+    this.w.nearUnits(x, y, r, add);
+    for (const b of this.w.buildingsOf(owner)) if (b.built) add(b);
+    return hp * dps;
+  }
+
+  centroid(list) {
+    let x = 0, y = 0;
+    for (const u of list) { x += u.x; y += u.y; }
+    return { x: x / list.length, y: y / list.length };
+  }
+
+  combat(army, blds) {
+    const W = this.w, pid = this.pid, smart = this.key !== 'easy';
     const ids = (list) => list.map((u) => u.id);
-    if (threat) {
-      const defenders = army.filter((u) => u.order.type !== 'attack' && u.order.type !== 'cast');
-      if (defenders.length) W.issue(pid, { c: 'move', ids: ids(defenders), x: threat.x, y: threat.y, attack: true });
-      if (this.attacking && armyPop < this.wave * 0.5) this.attacking = false;
-    } else if (!this.attacking && armyPop >= this.wave) {
-      this.attacking = true;
-      this.wave += this.d.waveGrow;
-      const t = this.enemyTarget();
-      if (t) W.issue(pid, { c: 'move', ids: ids(army), x: t.x, y: t.y, attack: true });
-    } else if (this.attacking) {
-      if (armyPop < (this.wave - this.d.waveGrow) * 0.3) {
-        this.attacking = false;
-        W.issue(pid, { c: 'move', ids: ids(army), x: this.home.x, y: this.home.y, attack: true });
-      } else {
-        const idle = army.filter((u) => u.order.type === 'idle');
-        const t = this.enemyTarget();
-        if (idle.length && t) W.issue(pid, { c: 'move', ids: ids(idle), x: t.x, y: t.y, attack: true });
+    const pop = (list) => list.reduce((s, u) => s + UNITS[u.type].pop, 0);
+    const homeD = (u) => Math.hypot(u.x - this.home.x, u.y - this.home.y);
+
+    // wounded Pokémon fall back to the Center to regenerate, then rejoin
+    for (const id of this.retreat) {
+      const u = W.ents.get(id);
+      if (!u || u.hp >= u.maxHp * 0.85) this.retreat.delete(id);
+    }
+    if (smart) for (const u of army) {
+      if (this.retreat.has(u.id) || u.ascend || u.hp > u.maxHp * 0.3 || homeD(u) < 16 * TILE) continue;
+      this.retreat.add(u.id);
+      W.issue(pid, { c: 'move', ids: [u.id], x: this.home.x, y: this.home.y, attack: false });
+    }
+    const ready = army.filter((u) => !this.retreat.has(u.id));
+
+    // enemies close to our buildings
+    const intruders = W.unitsOf(this.enemy).filter((e) => !UNITS[e.type].worker &&
+      blds.some((b) => Math.hypot(e.x - b.x, e.y - b.y) < 12 * TILE));
+    if (intruders.length) {
+      const c = this.centroid(intruders);
+      const threatS = this.strength(this.enemy, c.x, c.y, 10 * TILE);
+      const nearHome = ready.filter((u) => homeD(u) < 22 * TILE);
+      const homeS = this.strength(pid, c.x, c.y, 22 * TILE, this.retreat);
+      // the base is in real danger: call the attack back
+      if (this.state !== 'build' && (!smart || threatS > homeS * 0.8)) {
+        this.state = 'build';
+        const away = ready.filter((u) => homeD(u) >= 22 * TILE);
+        if (away.length) W.issue(pid, { c: 'move', ids: ids(away), x: c.x, y: c.y, attack: true });
       }
+      const defenders = (this.state === 'build' ? ready : nearHome).filter((u) => u.order.type !== 'attack' && u.order.type !== 'cast');
+      if (defenders.length) W.issue(pid, { c: 'move', ids: ids(defenders), x: c.x, y: c.y, attack: true });
+      // retreating units help too if the fight is at the door
+      const hurt = army.filter((u) => this.retreat.has(u.id) && u.order.type === 'idle');
+      if (hurt.length) W.issue(pid, { c: 'move', ids: ids(hurt), x: c.x, y: c.y, attack: true });
+    } else if (this.state === 'build') {
+      if (pop(ready) >= this.wave) {
+        // gather at a forward point first so the army arrives together
+        this.state = 'stage';
+        this.stageT = 0;
+        this.wave += this.d.waveGrow;
+        this.stagePt = this.stagePoint();
+        W.issue(pid, { c: 'move', ids: ids(ready), x: this.stagePt.x, y: this.stagePt.y, attack: true });
+      }
+    } else if (this.state === 'stage') {
+      this.stageT += this.d.think;
+      const p = this.stagePt;
+      const there = ready.filter((u) => Math.hypot(u.x - p.x, u.y - p.y) < 7 * TILE).length;
+      if (there >= ready.length * 0.8 || this.stageT > 25) {
+        this.state = 'attack';
+        const t = this.enemyTarget();
+        if (t) W.issue(pid, { c: 'move', ids: ids(ready), x: t.x, y: t.y, attack: true });
+      } else {
+        const idle = ready.filter((u) => u.order.type === 'idle' && Math.hypot(u.x - p.x, u.y - p.y) >= 7 * TILE);
+        if (idle.length) W.issue(pid, { c: 'move', ids: ids(idle), x: p.x, y: p.y, attack: true });
+      }
+    } else if (this.state === 'attack') {
+      const front = ready.filter((u) => homeD(u) > 20 * TILE);
+      const lowPop = pop(ready) < (this.wave - this.d.waveGrow) * 0.3;
+      let outmatched = false;
+      if (smart && front.length) {
+        const c = this.centroid(front);
+        const mine = this.strength(pid, c.x, c.y, 12 * TILE, this.retreat);
+        const theirs = this.strength(this.enemy, c.x, c.y, 13 * TILE);
+        outmatched = theirs > mine * 1.5;
+      }
+      if (lowPop || outmatched) {
+        // losing fight: save the army and come back bigger
+        this.state = 'build';
+        W.issue(pid, { c: 'move', ids: ids(ready), x: this.home.x, y: this.home.y, attack: false });
+      } else {
+        const t = this.enemyTarget();
+        const idleFront = front.filter((u) => u.order.type === 'idle');
+        if (idleFront.length && t) W.issue(pid, { c: 'move', ids: ids(idleFront), x: t.x, y: t.y, attack: true });
+        // reinforcements join the army in groups instead of trickling in one by one
+        const fresh = ready.filter((u) => homeD(u) <= 20 * TILE && u.order.type === 'idle');
+        if (pop(fresh) >= 6 || (fresh.length && !front.length)) {
+          const to = front.length ? this.centroid(front) : t;
+          if (to) W.issue(pid, { c: 'move', ids: ids(fresh), x: to.x, y: to.y, attack: true });
+        }
+      }
+    }
+
+    if (smart) this.focusFire(ready);
+  }
+
+  stagePoint() {
+    const e = this.w.map.starts[this.enemy];
+    const ex = e.tx * TILE, ey = e.ty * TILE;
+    const dx = ex - this.home.x, dy = ey - this.home.y, d = Math.hypot(dx, dy) || 1;
+    const k = Math.min(10 * TILE, d * 0.3);
+    return { x: this.home.x + (dx / d) * k, y: this.home.y + (dy / d) * k };
+  }
+
+  // pick targets that die fastest to our type: low HP, dangerous, super-effective; avoid overkill
+  focusFire(units) {
+    const W = this.w, pid = this.pid;
+    const planned = new Map();
+    for (const u of units) {
+      if (u.order.type === 'cast' || u.ascend || u.sleep > 0) continue;
+      const cur = u.order.type === 'attack' ? W.ents.get(u.order.target) : null;
+      if (u.order.type !== 'attack' && u.order.type !== 'move') continue;
+      if (u.order.type === 'move' && !u.order.attack) continue;
+      const st = W.stats(u);
+      const reach = st.range + 1.5 * TILE + u.radius;
+      let best = null, bs = 0, curS = 0;
+      W.nearUnits(u.x, u.y, reach + 16, (e) => {
+        if (e.owner === pid || e.owner < 0 || !W.ents.has(e.id) || !W.canHit(u, e) || !W.isVisible(pid, e)) return;
+        if (Math.hypot(e.x - u.x, e.y - u.y) > reach + e.radius) return;
+        const left = e.hp - (planned.get(e.id) || 0);
+        if (left <= 0) return; // already dying
+        const eff = effectiveness(st.type, FORMS[e.form].type);
+        const danger = UNITS[e.type].worker ? 0.15 : this.power(e) / Math.max(1, e.hp) + 1;
+        const s = eff * danger / Math.max(15, left);
+        if (cur === e) curS = s;
+        if (s > bs) { bs = s; best = e; }
+      });
+      if (!best) continue;
+      const hit = st.dmg * effectiveness(st.type, FORMS[best.form].type) * (1 + this.d.think / st.cd);
+      if (best === cur || (cur && cur.kind === 'unit' && bs < curS * 1.4)) {
+        if (cur && cur.kind === 'unit') planned.set(cur.id, (planned.get(cur.id) || 0) + hit);
+        continue;
+      }
+      planned.set(best.id, (planned.get(best.id) || 0) + hit);
+      W.issue(pid, { c: 'target', ids: [u.id], target: best.id });
     }
   }
 
@@ -211,7 +353,28 @@ export class AI {
           W.nearUnits(e.x, e.y, r, (f) => { if (f.owner !== pid && Math.hypot(f.x - e.x, f.y - e.y) <= r) n++; });
           if (n > bn) { bn = n; best = e; }
         });
-        if (best) W.issue(pid, { c: 'cast', ids: [u.id], key, x: best.x, y: best.y });
+        let tx = best && best.x, ty = best && best.y;
+        if (key === 'ascent') {
+          // Dragon Ascent: weigh groups by the HP it can drain, and dive on buildings too
+          let bv = 0;
+          const value = (x, y) => {
+            let v = 0;
+            W.nearUnits(x, y, r + 12, (f) => {
+              if (f.owner !== pid && Math.hypot(f.x - x, f.y - y) <= r + f.radius) v += Math.min(f.hp, ab.dmg) / ab.dmg * (UNITS[f.type].worker ? 0.5 : 1);
+            });
+            for (const b of W.buildingsOf(this.enemy)) if (Math.hypot(b.x - x, b.y - y) <= r + b.radius) v += b.type === 'center' ? 1.5 : 0.8;
+            return v;
+          };
+          W.nearUnits(u.x, u.y, reach, (e) => { if (e.owner !== pid) { const v = value(e.x, e.y); if (v > bv) { bv = v; tx = e.x; ty = e.y; } } });
+          for (const b of W.buildingsOf(this.enemy)) {
+            if (Math.hypot(b.x - u.x, b.y - u.y) > reach) continue;
+            const v = value(b.x, b.y);
+            if (v > bv) { bv = v; tx = b.x; ty = b.y; }
+          }
+          // when badly hurt, the life steal is worth a smaller target
+          if (bv < (u.hp < u.maxHp * 0.5 ? 1 : 2)) continue;
+        } else if (!best) continue;
+        W.issue(pid, { c: 'cast', ids: [u.id], key, x: tx, y: ty });
       }
     }
   }

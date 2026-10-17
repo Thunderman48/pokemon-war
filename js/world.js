@@ -1,7 +1,7 @@
 // Authoritative game simulation. DOM-free so it can run headless (tests) or on the host.
 import {
   TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ABILITIES, EVO_XP, EVO_MULT,
-  UNIT_KEYS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, effectiveness, researchCost, researchTime,
+  UNIT_KEYS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, effectiveness, researchCost, researchTime, REGEN_DELAY, REGEN_RATE,
 } from './config.js';
 import { generateMap, tileBlocked } from './map.js';
 import { Pathfinder } from './path.js';
@@ -622,6 +622,11 @@ export class World {
     u.moving = false;
     if (u.sleep > 0) { u.sleep -= dt; return; }
     if (u.ascend) { this.updateAscent(u, dt); return; }
+    // passive regeneration out of combat: a share of max HP per second
+    if (u.hp < u.maxHp && this.time - (u.lastCombat ?? -99) > REGEN_DELAY) {
+      u.hp = Math.min(u.maxHp, u.hp + u.maxHp * REGEN_RATE * dt);
+      if ((this.tick + u.id) % 50 === 0) this.fx.push({ k: 'heal', x: u.x | 0, y: u.y | 0 });
+    }
     // pushed into a building footprint? pop out
     if (!isFlying(u) && this.blockedAt(u.x, u.y)) {
       const f = this.nearestFree(Math.floor(u.x / TILE), Math.floor(u.y / TILE), 5);
@@ -891,6 +896,7 @@ export class World {
     u.ascend = null;
     u.order = { type: 'idle' };
     this.fx.push({ k: 'quake', x: a.x | 0, y: a.y | 0, r: a.r | 0, m: a.m });
+    let drained = 0;
     this.nearUnits(a.x, a.y, a.r + 16, (e) => {
       if (e.owner === u.owner || !this.ents.has(e.id) || e.ascend) return;
       const d = Math.hypot(e.x - a.x, e.y - a.y);
@@ -899,11 +905,19 @@ export class World {
       const push = 10 * (1 - d / (a.r + e.radius)) + 2, ux = d ? (e.x - a.x) / d : 1, uy = d ? (e.y - a.y) / d : 0;
       const nx = e.x + ux * push, ny = e.y + uy * push;
       if (!this.blockedFor(e, nx, ny)) { e.x = nx; e.y = ny; }
-      this.damage(e, a.dmg * effectiveness('dragon', FORMS[e.form].type) * (d < a.r * 0.5 ? 1 : 0.75), u.id, u.owner);
+      const got = this.damage(e, a.dmg * effectiveness('dragon', FORMS[e.form].type) * (d < a.r * 0.5 ? 1 : 0.75), u.id, u.owner);
+      drained += got;
+      if (got > 0) this.fx.push({ k: 'drain', x1: e.x | 0, y1: (e.y - 6) | 0, id: u.id, d: 0.7, m: a.m });
     });
     for (const b of [...this.ents.values()]) {
       if (b.kind !== 'building' || b.owner === u.owner) continue;
-      if (this.edgeDist({ x: a.x, y: a.y, radius: 0 }, b) <= a.r) this.damage(b, a.dmg * 0.6, u.id, u.owner);
+      if (this.edgeDist({ x: a.x, y: a.y, radius: 0 }, b) <= a.r) drained += this.damage(b, a.dmg * 0.6, u.id, u.owner) * 0.5;
+    }
+    // life steal: Rayquaza heals for part of the damage it dealt
+    const heal = drained * (ABILITIES.ascent.drain || 0);
+    if (heal > 0 && this.ents.has(u.id)) {
+      u.hp = Math.min(u.maxHp, u.hp + heal);
+      this.fx.push({ k: 'drained', x: u.x | 0, y: u.y | 0, amt: Math.round(heal), m: a.m });
     }
   }
 
@@ -925,9 +939,12 @@ export class World {
 
   damage(t, dmg, srcId, srcOwner) {
     if (t.kind === 'unit') dmg *= 1 - 0.12 * this.rlevel(t.owner, 'defense');
+    const dealt = Math.min(dmg, Math.max(0, t.hp));
     t.hp -= dmg;
+    t.lastCombat = this.time;
     const src = this.ents.get(srcId);
     if (src && src.kind === 'unit') {
+      src.lastCombat = this.time;
       src.xp += dmg;
       this.tryEvolve(src);
     }
@@ -951,6 +968,7 @@ export class World {
         if (t.type === 'center') this.checkWin();
       }
     }
+    return dealt;
   }
 
   nearOwnArmy(t) {
