@@ -44,8 +44,6 @@ export class AI {
     const s = world.map.starts[pid];
     this.homeT = { x: s.tx + 1, y: s.ty + 1 };
     this.home = { x: this.homeT.x * TILE + 8, y: this.homeT.y * TILE + 8 };
-    const ex = { x: 10, y: world.h - 14 };
-    this.expansion = pid === 0 ? ex : { x: world.w - 1 - ex.x, y: world.h - 1 - ex.y };
     this.seed = pid * 7919 + 13;
     this.researchT = 0;
   }
@@ -72,54 +70,50 @@ export class AI {
     this.built = false;
 
     // --- economy
-    // train whichever of the deck's workers we have fewer of
+    // workers: up to the difficulty's count per Center (max 3 Centers' worth), whichever deck worker we have fewer of
     const wts = W.workerTypes(pid);
-    const wt = wts.reduce((a, b) => (workers.filter((u) => u.type === b).length + queued(b) < workers.filter((u) => u.type === a).length + queued(a) ? b : a));
-    if (centers.length && workers.length + wts.reduce((n, t) => n + queued(t), 0) < this.d.workers * Math.min(2, centers.length)) {
-      const c = centers.find((x) => x.queue.length < 2);
+    const nW = (t) => workers.filter((u) => u.type === t).length + queued(t);
+    const wt = wts.reduce((a, b) => (nW(b) < nW(a) ? b : a));
+    const wantWorkers = this.d.workers * Math.max(1, Math.min(3, centers.length));
+    if (centers.length && workers.length + wts.reduce((n, t) => n + queued(t), 0) < wantWorkers) {
+      const c = centers.filter((x) => x.queue.length < 2).sort((x, y) => x.queue.length - y.queue.length)[0];
       if (c && W.canAfford(pid, UNITS[wt].cost) && me.pop + 1 <= me.cap) W.issue(pid, { c: 'train', id: c.id, type: wt });
     }
-    const hasGym = count('gym') > 0;
-    let crystalW = workers.filter((u) => u.order.type === 'gather' && u.order.kind === 'crystal').length;
-    const wantCrystal = !hasGym ? 1 : Math.ceil(workers.length * (me.c > me.b + 300 ? 0.15 : me.b > me.c + 300 ? 0.5 : 0.35));
-    for (const u of workers) {
-      if (u.order.type !== 'idle') continue;
-      const kind = crystalW < wantCrystal ? 'crystal' : 'berry';
-      const r = W.nearestResource(u, kind, 40) || W.nearestResource(u, kind === 'crystal' ? 'berry' : 'crystal', 40);
-      if (r) { W.issue(pid, { c: 'target', ids: [u.id], target: r.id }); if (r.type === 'crystal') crystalW++; }
-    }
-    if (crystalW < wantCrystal - 1) {
-      const u = workers.find((x) => x.order.type === 'gather' && x.order.kind === 'berry' && !x.carry.amt);
-      const r = u && W.nearestResource(u, 'crystal', 40);
-      if (r) W.issue(pid, { c: 'target', ids: [u.id], target: r.id });
-    }
-    // finish abandoned foundations
+    this.balanceWorkers(workers, count('gym') > 0, me);
+    // finish abandoned foundations; give up on ones that stopped making progress (e.g. unreachable)
+    this.stuck = this.stuck || new Map();
     for (const b of blds) {
-      if (b.built) continue;
+      if (b.built) { this.stuck.delete(b.id); continue; }
+      const st = this.stuck.get(b.id) || { p: b.progress, t: W.time };
+      if (b.progress > st.p + 0.001) { st.p = b.progress; st.t = W.time; }
+      this.stuck.set(b.id, st);
+      if (W.time - st.t > 25) {
+        W.issue(pid, { c: 'cancel', id: b.id });
+        this.badSpots = this.badSpots || new Set();
+        this.badSpots.add(b.tx + ',' + b.ty);
+        this.stuck.delete(b.id);
+        continue;
+      }
       if (!workers.some((u) => u.order.type === 'build' && u.order.target === b.id)) {
         const u = this.pickWorker(workers, b);
         if (u) W.issue(pid, { c: 'target', ids: [u.id], target: b.id });
       }
     }
 
-    // --- buildings
-    const pendingMart = blds.some((b) => b.type === 'mart' && !b.built);
-    if (me.cap < 200 && me.cap - me.pop <= 6 + 5 * count('gym', true) && !pendingMart) this.build('mart', workers);
-    if (!hasGym && workers.length >= 8) this.build('gym', workers);
-    if (count('gym', true) && !count('lab') && workers.length >= 11 && W.time > (this.key === 'easy' ? 420 : 220)) this.build('lab', workers);
-    if (this.key !== 'easy' && count('gym', true) === 1 && count('gym') === 1 && W.time > 330 && me.b > 300) this.build('gym', workers);
-    const towers = this.key === 'hard' ? 2 : this.key === 'normal' ? 1 : 0;
-    if (count('gym', true) && count('tower') < towers && W.time > 260) this.build('tower', workers, true);
-    if (this.key !== 'easy' && count('lab', true) && !count('skypillar') && W.time > 540 && me.b > 350 && me.c > 300) this.build('skypillar', workers);
-    // expand when the home berries run low
-    const homeBerries = [...W.ents.values()].filter((e) => e.kind === 'res' && e.type === 'berry' &&
-      Math.hypot(e.tx - this.homeT.x, e.ty - this.homeT.y) < 12).length;
-    if (homeBerries <= 2 && count('center') < 2 && W.time > 240) this.build('center', workers, false, this.expansion);
-    // smarter players expand before running dry
-    if (this.key !== 'easy' && count('center') < 2 && W.time > (this.key === 'hard' ? 300 : 420) && me.b > 450) this.build('center', workers, false, this.expansion);
-    // floating resources: turn them into more production
-    const maxGyms = this.key === 'hard' ? 4 : this.key === 'normal' ? 3 : 1;
-    if (count('gym', true) === count('gym') && count('gym') < maxGyms && W.time > 240 && me.b > 650) this.build('gym', workers);
+    // --- buildings: work down a priority list, saving up for the first one we can't afford yet
+    this.reserve = { b: 0, c: 0 };
+    const threatened = W.unitsOf(this.enemy).some((e) => !UNITS[e.type].worker && blds.some((b) => Math.hypot(e.x - b.x, e.y - b.y) < 12 * TILE));
+    for (const want of this.buildWants(blds, workers, count, me)) {
+      const def = BUILDINGS[want.type];
+      if (!W.reqMet(pid, def.req)) continue;
+      if (W.canAfford(pid, def.cost)) {
+        if (this.build(want.type, workers, want.forward, want.at)) break;
+        continue; // no room there: try the next one
+      }
+      // can't afford it yet: hold back army spending until we can (unless we're under attack)
+      if (!threatened && !want.cheap) this.reserve = { b: def.cost.b || 0, c: def.cost.c || 0 };
+      break;
+    }
 
     // --- research
     this.researchT -= this.d.think * this.d.research;
@@ -135,14 +129,14 @@ export class AI {
     for (const g of blds.filter((b) => b.type === 'gym' && b.built)) {
       if (g.queue.length >= 2) continue;
       const t = this.pickUnit(enemyTypes, army.length);
-      if (t && W.canAfford(pid, UNITS[t].cost) && me.pop + squadPop(t) <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
+      if (t && this.canSpend(UNITS[t].cost) && me.pop + squadPop(t) <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
       if (!g.rally) this.setRally(g);
     }
     const pillar = blds.find((b) => b.type === 'skypillar' && b.built);
     if (pillar && !pillar.queue.some((q) => q.u)) {
       if (!pillar.rally) this.setRally(pillar);
       const lg = W.legendType(pid);
-      if (lg && W.unitCount(pid, lg) < (UNITS[lg].limit || 1) && W.canAfford(pid, UNITS[lg].cost) && me.pop + squadPop(lg) <= me.cap)
+      if (lg && W.unitCount(pid, lg) < (UNITS[lg].limit || 1) && this.canSpend(UNITS[lg].cost) && me.pop + squadPop(lg) <= me.cap)
         W.issue(pid, { c: 'train', id: pillar.id, type: lg });
     }
 
@@ -335,6 +329,99 @@ export class AI {
     }
   }
 
+  // can we pay for this and still keep what we're saving for a building?
+  canSpend(cost) {
+    const p = this.w.players[this.pid], r = this.reserve || { b: 0, c: 0 };
+    return p.b >= (cost.b || 0) + r.b && p.c >= (cost.c || 0) + r.c;
+  }
+
+  // Buildings the AI wants, most important first.
+  buildWants(blds, workers, count, me) {
+    const W = this.w, t = W.time, easy = this.key === 'easy', hard = this.key === 'hard';
+    const wants = [];
+    const gyms = count('gym'), centers = count('center');
+    // rebuild what was lost
+    if (!centers) wants.push({ type: 'center', at: this.homeT });
+    if (!gyms && workers.length >= 4) wants.push({ type: 'gym' });
+    // supply (cheap, always first when tight)
+    const pendingMart = blds.some((b) => b.type === 'mart' && !b.built);
+    if (me.cap < 200 && me.cap - me.pop <= 6 + 5 * count('gym', true) && !pendingMart) wants.push({ type: 'mart', cheap: true });
+    // expand to fresh resources: early on harder levels, or when the bases are running dry
+    const dry = this.nearBerries(blds) <= 3;
+    const maxCenters = easy ? 2 : 3;
+    if (centers && centers < maxCenters && !blds.some((b) => b.type === 'center' && !b.built)) {
+      const time = centers === 1 ? (easy ? 600 : hard ? 300 : 420) : 900;
+      if (dry || t > time) {
+        const at = this.expansionSpot(blds);
+        if (at) wants.push({ type: 'center', at });
+      }
+    }
+    if (gyms === 1 && count('gym', true) === 1 && !easy && t > 330) wants.push({ type: 'gym' });
+    if (count('gym', true) && !count('lab') && t > (easy ? 420 : 220)) wants.push({ type: 'lab' });
+    const towers = hard ? 2 : easy ? 0 : 1;
+    if (count('gym', true) && count('tower') < towers && t > 260) wants.push({ type: 'tower', forward: true, cheap: true });
+    if (!easy && count('lab', true) && !count('skypillar') && t > 540) wants.push({ type: 'skypillar' });
+    const maxGyms = hard ? 4 : easy ? 1 : 3;
+    if (gyms < maxGyms && count('gym', true) === gyms && t > 600) wants.push({ type: 'gym' });
+    return wants;
+  }
+
+  // berry bushes left near our Centers
+  nearBerries(blds) {
+    const cs = blds.filter((b) => b.type === 'center');
+    let n = 0;
+    for (const e of this.w.ents.values()) {
+      if (e.kind === 'res' && e.type === 'berry' && cs.some((c) => Math.hypot(e.x - c.x, e.y - c.y) < 12 * TILE)) n++;
+    }
+    return n;
+  }
+
+  // the closest patch of berries that has no Center of ours nearby and is away from the enemy
+  expansionSpot(blds) {
+    const W = this.w;
+    const mine = blds.filter((b) => b.type === 'center');
+    const theirs = W.buildingsOf(this.enemy);
+    let best = null, bs = Infinity;
+    for (const e of W.ents.values()) {
+      if (e.kind !== 'res' || e.type !== 'berry') continue;
+      if (mine.some((c) => Math.hypot(e.x - c.x, e.y - c.y) < 13 * TILE)) continue;
+      if (theirs.some((b) => Math.hypot(e.x - b.x, e.y - b.y) < 16 * TILE)) continue;
+      // prefer rich spots (several bushes together) close to home
+      let near = 0;
+      for (const f of W.ents.values()) if (f.kind === 'res' && Math.hypot(f.x - e.x, f.y - e.y) < 5 * TILE) near++;
+      const s = Math.hypot(e.x - this.home.x, e.y - this.home.y) - near * 3 * TILE;
+      if (s < bs) { bs = s; best = e; }
+    }
+    return best ? { x: best.tx, y: best.ty } : null;
+  }
+
+  // Keep the berry/crystal split sensible and move workers over when one resource piles up.
+  balanceWorkers(workers, hasGym, me) {
+    const W = this.w, pid = this.pid;
+    const gath = workers.filter((u) => u.order.type === 'gather' || u.order.type === 'idle');
+    let frac = hasGym ? 0.35 : 0.1;
+    if (me.c > me.b + 250 || me.b < 60) frac = 0.12;
+    else if (me.b > me.c + 250 || me.c < 40) frac = 0.55;
+    const want = Math.max(hasGym ? 1 : 0, Math.round(gath.length * frac));
+    let crystalW = workers.filter((u) => u.order.type === 'gather' && u.order.kind === 'crystal').length;
+    for (const u of workers) {
+      if (u.order.type !== 'idle') continue;
+      const kind = crystalW < want ? 'crystal' : 'berry';
+      const r = W.nearestResource(u, kind, 60) || W.nearestResource(u, kind === 'crystal' ? 'berry' : 'crystal', 60);
+      if (r) { W.issue(pid, { c: 'target', ids: [u.id], target: r.id }); if (r.type === 'crystal') crystalW++; }
+    }
+    // shift up to two workers per think toward the resource we're short of
+    for (let i = 0; i < 2; i++) {
+      const from = crystalW > want + 1 ? 'crystal' : crystalW < want - 1 ? 'berry' : null;
+      if (!from) break;
+      const u = workers.find((x) => x.order.type === 'gather' && x.order.kind === from && !x.carry.amt);
+      const r = u && W.nearestResource(u, from === 'crystal' ? 'berry' : 'crystal', 60);
+      if (!r) break;
+      W.issue(pid, { c: 'target', ids: [u.id], target: r.id });
+      crystalW += from === 'crystal' ? -1 : 1;
+    }
+  }
+
   setRally(b) {
     const dx = Math.sign(this.w.map.starts[this.enemy].tx - this.homeT.x);
     this.w.issue(this.pid, { c: 'rally', id: b.id, x: this.home.x + dx * 5 * TILE, y: this.home.y + dx * 5 * TILE });
@@ -361,7 +448,7 @@ export class AI {
       if (!at) continue;
       const cost = researchCost(k, W.rlevel(pid, k));
       // keep some money for the army
-      if (me.b < cost.b + 100 || me.c < cost.c + 40) return;
+      if (!this.canSpend({ b: cost.b + 100, c: cost.c + 40 })) return;
       W.issue(pid, { c: 'research', id: at.id, key: k });
       this.researchT = RESEARCH[k].time * 0.3;
       return;
@@ -411,30 +498,35 @@ export class AI {
     return best;
   }
 
+  // Place a building. Returns true if a worker was sent.
   build(type, workers, forward = false, around) {
-    if (this.built) return; // one building per think
+    if (this.built) return true; // one building per think
     const W = this.w, pid = this.pid;
     const def = BUILDINGS[type];
-    if (!W.canAfford(pid, def.cost) || !W.reqMet(pid, def.req)) return;
-    let c = around || this.homeT;
+    if (!W.canAfford(pid, def.cost) || !W.reqMet(pid, def.req)) return false;
+    // home first, then around our other Centers when the main base is full
+    const centers = [this.homeT, ...W.buildingsOf(pid).filter((b) => b.type === 'center').map((b) => ({ x: b.tx + 1, y: b.ty + 1 }))];
+    let tries = around ? [around] : centers;
     if (forward) {
       const e = W.map.starts[this.enemy];
       const dx = Math.sign(e.tx - this.homeT.x), dy = Math.sign(e.ty - this.homeT.y);
-      c = { x: this.homeT.x + dx * 6, y: this.homeT.y + dy * 6 };
+      tries = [{ x: this.homeT.x + dx * 6, y: this.homeT.y + dy * 6 }, ...centers];
     }
-    const spot = this.findSpot(type, c);
-    if (!spot) return;
+    let spot = null;
+    for (const c of tries) if ((spot = this.findSpot(type, c))) break;
+    if (!spot) return false;
     const u = this.pickWorker(workers, { x: spot.tx * TILE, y: spot.ty * TILE });
-    if (!u) return;
+    if (!u) return false;
     W.issue(pid, { c: 'build', ids: [u.id], type, tx: spot.tx, ty: spot.ty });
     this.built = true;
+    return true;
   }
 
   findSpot(type, c) {
     const W = this.w;
     const def = BUILDINGS[type];
     const res = [...W.ents.values()].filter((e) => e.kind === 'res');
-    for (let r = 2; r <= 14; r++) {
+    for (let r = 2; r <= 18; r++) {
       const cands = [];
       for (let y = c.y - r; y <= c.y + r; y++)
         for (let x = c.x - r; x <= c.x + r; x++)
@@ -444,6 +536,7 @@ export class AI {
         [cands[i], cands[j]] = [cands[j], cands[i]];
       }
       for (const s of cands) {
+        if (this.badSpots && this.badSpots.has(s.tx + ',' + s.ty)) continue;
         if (!W.canPlace(type, s.tx, s.ty, this.pid)) continue;
         // keep a 1-tile gap around buildings and 2 tiles from resources
         let ok = true;
@@ -452,6 +545,11 @@ export class AI {
             if (W.blockedTile(x, y) && W.occ[y * W.w + x]) ok = false;
         if (!ok) continue;
         if (res.some((e) => e.tx >= s.tx - 2 && e.tx <= s.tx + def.w + 1 && e.ty >= s.ty - 2 && e.ty <= s.ty + def.h + 1)) continue;
+        // workers must be able to reach it: a free tile next to it that opens onto the rest of the map
+        let reach = false;
+        for (let x = s.tx - 1; x <= s.tx + def.w && !reach; x++)
+          for (const y of [s.ty - 1, s.ty + def.h]) if (!W.blockedTile(x, y) && W.openArea(x, y, 60)) { reach = true; break; }
+        if (!reach) continue;
         return s;
       }
     }
