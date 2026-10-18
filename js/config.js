@@ -153,8 +153,8 @@ export const BUILDINGS = {
   },
   gym: {
     name: 'Gym', short: 'GYM', w: 3, h: 3, hp: 1000, cost: { b: 150, c: 0 }, time: 35, sight: 6,
-    trains: ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee', 'pikachu', 'snorlax'],
-    desc: 'Trains battle Pokémon. Snorlax needs a Lab.',
+    trains: [], // the fighters in your deck (filled in below)
+    desc: 'Trains the battle Pokémon in your deck. Pikachu and Snorlax need a Lab.',
   },
   lab: {
     name: 'Lab', short: 'LAB', w: 3, h: 3, hp: 800, cost: { b: 150, c: 100 }, time: 40, sight: 6, req: 'gym',
@@ -169,8 +169,8 @@ export const BUILDINGS = {
   },
   skypillar: {
     name: 'Sky Pillar', short: 'PILLAR', w: 3, h: 3, hp: 1200, cost: { b: 300, c: 250 }, time: 60, sight: 9, req: 'lab',
-    trains: ['pidgey', 'rayquaza'],
-    desc: 'Trains flying Pokémon and the legendary Rayquaza. Unlocks legendary research.',
+    trains: [], // the legendary in your deck
+    desc: 'Trains the legendary Pokémon in your deck. Unlocks legendary research and the Key Stone.',
   },
 };
 
@@ -188,8 +188,8 @@ export const RESEARCH = {
   evo_venusaur: evo('bulbasaur', 'Venusaur', 'venusaur', 200, 175, 45, 'evo_ivysaur'),
   evo_graveler: evo('geodude', 'Graveler', 'graveler', 100, 75, 30),
   evo_golem: evo('geodude', 'Golem', 'golem', 200, 175, 45, 'evo_graveler'),
-  evo_pidgeotto: { ...evo('pidgey', 'Pidgeotto', 'pidgeotto', 100, 75, 30), reqB: 'skypillar' },
-  evo_pidgeot: { ...evo('pidgey', 'Pidgeot', 'pidgeot', 200, 175, 45, 'evo_pidgeotto'), reqB: 'skypillar' },
+  evo_pidgeotto: evo('pidgey', 'Pidgeotto', 'pidgeotto', 100, 75, 30),
+  evo_pidgeot: evo('pidgey', 'Pidgeot', 'pidgeot', 200, 175, 45, 'evo_pidgeotto'),
   thunderstone: { lines: ['pikachu', 'eevee'], name: 'Thunder Stone', icon: 'i:thunderstone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Pikachu → Raichu and Eevee → Jolteon.' },
   waterstone: { lines: ['eevee'], name: 'Water Stone', icon: 'i:waterstone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Eevee → Vaporeon.' },
   firestone: { lines: ['eevee'], name: 'Fire Stone', icon: 'i:firestone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Eevee → Flareon.' },
@@ -403,6 +403,61 @@ export const squadPop = (type) => UNITS[type].pop * squadSize(type);
 export function reinforceCost(type) {
   const c = UNITS[type].cost, n = squadSize(type);
   return { b: Math.round((c.b || 0) / n * REINFORCE_COST), c: Math.round((c.c || 0) / n * REINFORCE_COST) };
+}
+
+// ---------------------------------------------------------------- decks
+// A deck has 8 slots: 1 worker, 1 legendary and 6 fighters, each with a held item and 3 skills.
+export const DECK_POOL = {
+  worker: ['machop'],
+  legend: ['rayquaza'],
+  fighter: ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee', 'pikachu', 'pidgey', 'snorlax'],
+};
+export const DECK_CLASSES = ['worker', 'legend', 'fighter', 'fighter', 'fighter', 'fighter', 'fighter', 'fighter'];
+export const lineClass = (line) => Object.keys(DECK_POOL).find((c) => DECK_POOL[c].includes(line));
+BUILDINGS.center.trains = DECK_POOL.worker;
+BUILDINGS.gym.trains = DECK_POOL.fighter;
+BUILDINGS.skypillar.trains = DECK_POOL.legend;
+
+const slot = (line, skills, item) => ({ line, skills: skills || DEFAULT_SKILLS[line], item: item === undefined ? DEFAULT_ITEMS[line] || null : item });
+export const DEFAULT_DECK = {
+  name: 'Starter',
+  slots: ['machop', 'rayquaza', 'charmander', 'squirtle', 'bulbasaur', 'geodude', 'pikachu', 'snorlax'].map((l) => slot(l)),
+};
+// decks the computer plays with
+export const AI_DECKS = [
+  { name: 'Classic', slots: ['machop', 'rayquaza', 'charmander', 'squirtle', 'bulbasaur', 'geodude', 'pikachu', 'snorlax'].map((l) => slot(l)) },
+  {
+    name: 'Sky Storm',
+    slots: [slot('machop'), slot('rayquaza', ['ascent', 'dragonbreath', 'deltastream']), slot('pidgey', ['hurricane', 'bravebird', 'keeneye']),
+      slot('charmander', ['flamethrower', 'heatwave', 'blaze']), slot('pikachu', ['thunder', 'volttackle', 'static']), slot('eevee', ['quickattack', 'helpinghand', 'adaptability']),
+      slot('squirtle', ['healpulse', 'hydropump', 'protect']), slot('geodude', ['rockslide', 'selfdestruct', 'sturdy'])],
+  },
+  {
+    name: 'Bulwark',
+    slots: [slot('machop', ['hustle', 'strength', 'guts']), slot('rayquaza', ['ascent', 'outrage', 'airlock']), slot('snorlax', ['bodyslam', 'yawn', 'immunity'], 'leftovers'),
+      slot('squirtle', ['healpulse', 'protect', 'shellarmor']), slot('bulbasaur', ['sleeppowder', 'solarbeam', 'poisonpoint']), slot('geodude', ['rockslide', 'rollout', 'solidrock'], 'rockyhelmet'),
+      slot('eevee', ['swift', 'helpinghand', 'anticipation']), slot('charmander', ['flamethrower', 'firespin', 'solarpower'])],
+  },
+];
+
+// Fixes up a deck (from storage or the network) so it is always legal: 8 slots of the right classes,
+// no duplicate Pokémon, 3 different skills of that Pokémon, a known item.
+export function validDeck(deck) {
+  const out = { name: (deck && typeof deck.name === 'string' ? deck.name : 'Deck').slice(0, 16), slots: [] };
+  const used = new Set();
+  DECK_CLASSES.forEach((cls, i) => {
+    const s = (deck && deck.slots && deck.slots[i]) || {};
+    let line = DECK_POOL[cls].includes(s.line) && !used.has(s.line) ? s.line : null;
+    if (!line) line = DEFAULT_DECK.slots.map((x) => x.line).concat(DECK_POOL[cls]).find((l) => DECK_POOL[cls].includes(l) && !used.has(l));
+    used.add(line);
+    const all = skillsOf(line);
+    let skills = Array.isArray(s.skills) ? [...new Set(s.skills.filter((k) => all.includes(k)))] : [];
+    for (const k of DEFAULT_SKILLS[line] || all) if (skills.length < 3 && !skills.includes(k)) skills.push(k);
+    for (const k of all) if (skills.length < 3 && !skills.includes(k)) skills.push(k);
+    const item = s.item === null || ITEMS[s.item] ? s.item ?? null : null;
+    out.slots.push({ line, skills: skills.slice(0, 3), item });
+  });
+  return out;
 }
 
 export const UNIT_KEYS = Object.keys(UNITS);

@@ -1,6 +1,6 @@
 // Authoritative game simulation. DOM-free so it can run headless (tests) or on the host.
 import {
-  TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ASCENT, EVO_XP, EVO_MULT, SKILLS, DEFAULT_SKILLS, DEFAULT_ITEMS, skillResearch,
+  TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ASCENT, EVO_XP, EVO_MULT, SKILLS, DEFAULT_DECK, validDeck, skillResearch,
   UNIT_KEYS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, effectiveness, researchCost, researchTime, REGEN_DELAY, REGEN_RATE,
   REINFORCE_DELAY, REINFORCE_TIME, squadSize, squadPop, reinforceCost,
 } from './config.js';
@@ -47,7 +47,7 @@ export function unitStats(u, research, mods) {
 }
 
 export function defaultDeck() {
-  return { slots: Object.entries(DEFAULT_SKILLS).map(([line, skills]) => ({ line, skills: [...skills], item: DEFAULT_ITEMS[line] || null })) };
+  return JSON.parse(JSON.stringify(DEFAULT_DECK));
 }
 
 export class World {
@@ -68,7 +68,7 @@ export class World {
       id: i, name: p.name || `Player ${i + 1}`, b: 250, c: 50, pop: 0, cap: 0,
       research: {}, gatherMult: p.gatherMult || 1, alive: true, ai: !!p.ai,
       // the player's deck: one slot per Pokémon line with its 3 chosen skills (and item)
-      deck: p.deck || defaultDeck(),
+      deck: p.deck ? validDeck(p.deck) : defaultDeck(),
       stats: { trained: 0, killed: 0, lost: 0, gathered: 0 }, lastAlert: -99, hinted: {},
     }));
     this.time = 0; this.tick = 0; this.winner = -1;
@@ -96,7 +96,7 @@ export class World {
       const b = this.addBuilding('center', pid, s.tx, s.ty, true);
       for (let i = 0; i < 5; i++) {
         const spot = this.spawnSpot(b, i);
-        this.addUnit('machop', pid, spot.x, spot.y);
+        this.addUnit(this.workerType(pid), pid, spot.x, spot.y);
       }
     });
     this.updateFog();
@@ -223,6 +223,12 @@ export class World {
     const slot = p && p.deck.slots.find((s) => s.line === line);
     return slot ? slot.skills : [];
   }
+  inDeck(pid, line) {
+    const p = this.players[pid];
+    return !!(p && p.deck.slots.some((s) => s.line === line));
+  }
+  workerType(pid) { return this.players[pid].deck.slots[0].line; }
+
   // an active or passive skill this unit's player has chosen and researched
   knows(u, key) {
     return SKILLS[key].line === FORMS[u.form].line && this.loadout(u.owner, SKILLS[key].line).includes(key) && !!this.rlevel(u.owner, skillResearch(key));
@@ -429,6 +435,7 @@ export class World {
         const b = ownB(cmd.id);
         const def = UNITS[cmd.type];
         if (!b || !b.built || !def || !(BUILDINGS[b.type].trains || []).includes(cmd.type)) return;
+        if (!this.inDeck(pid, cmd.type)) return this.notify(pid, `${def.name} is not in your deck`, 'warn');
         if (b.queue.length >= 5) return this.notify(pid, 'Queue is full', 'warn');
         if (!this.reqMet(pid, def.req)) return this.notify(pid, `Requires ${BUILDINGS[def.req].name}`, 'warn');
         if (def.limit && this.unitCount(pid, cmd.type) >= def.limit) return this.notify(pid, `Only ${def.limit} ${def.name} allowed`, 'warn');

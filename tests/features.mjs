@@ -1,6 +1,6 @@
 // Scripted checks for V2 features: node tests/features.mjs
 import { World, isFlying } from '../js/world.js';
-import { MEGA, FORMS, TILE, EVO_XP, BUILDINGS, RESEARCH, UNITS, squadSize, squadPop, reinforceCost, REINFORCE_DELAY, REINFORCE_TIME } from '../js/config.js';
+import { SKILLS, DECK_POOL, AI_DECKS, validDeck, MEGA, FORMS, TILE, EVO_XP, BUILDINGS, RESEARCH, UNITS, squadSize, squadPop, reinforceCost, REINFORCE_DELAY, REINFORCE_TIME } from '../js/config.js';
 
 let fails = 0;
 const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'} ${msg}`); if (!cond) fails++; };
@@ -51,11 +51,16 @@ ok(ee.form === 'eevee', 'cannot pick Jolteon without Thunder Stone');
 w.issue(0, { c: 'evolve', id: ee.id, to: 'vaporeon' });
 ok(ee.form === 'vaporeon', 'Eevee -> Vaporeon');
 
+// only Pokémon in the deck can be trained
+w.issue(0, { c: 'train', id: gym.id, type: 'pidgey' });
+ok(!gym.queue.length, 'Pokémon outside the deck cannot be trained');
+P.deck.slots[5] = { line: 'pidgey', skills: ['hurricane', 'roost', 'keeneye'], item: 'pidgeotite' };
+P.deckKey = 'pidgey';
 // flying over water/trees: send a Pidgey across the map in a straight line
-w.issue(0, { c: 'train', id: pillar.id, type: 'pidgey' });
+w.issue(0, { c: 'train', id: gym.id, type: 'pidgey' });
 run(w, UNITS.pidgey.time + 1);
 const pg = w.unitsOf(0).find((u) => u.type === 'pidgey');
-ok(!!pg, 'Pidgey trained at the Sky Pillar');
+ok(!!pg, 'Pidgey squad trained at the Gym');
 w.issue(0, { c: 'move', ids: [pg.id], x: 60 * TILE, y: 4 * TILE, attack: false });
 run(w, 20);
 ok(Math.hypot(pg.x - 60 * TILE, pg.y - 4 * TILE) < 20, `Pidgey flew to the far corner (${(pg.x / TILE) | 0},${(pg.y / TILE) | 0})`);
@@ -318,6 +323,7 @@ void drainT;
   applyStatusTest(w4, sn);
   // auto-cast: a squad with AUTO on uses its skill by itself
   A.research.sk_swift = 1;
+  A.deck.slots[7] = { line: 'eevee', skills: ['quickattack', 'swift', 'adaptability'], item: 'eviolite' }; A.deckKey = 'eevee';
   const ev = w4.addSquad('eevee', 0, 30 * TILE, 55 * TILE);
   const v6 = [0, 1].map((i) => dummy(1, 33, 55 + i * 0.5, 'charmander'));
   w4.buildHash();
@@ -367,6 +373,7 @@ function applyStatusTest(w, u) {
   // items
   A.deck.slots.find((s) => s.line === 'charmander').item = 'choiceband'; A.deckKey = 'x3';
   ok(Math.abs(w5.stats(lead).dmg / w5.stats({ ...lead, owner: 1 }).dmg - 1.25) < 0.01, 'Choice Band: +25% damage');
+  A.deck.slots[7] = { line: 'eevee', skills: ['quickattack', 'swift', 'adaptability'], item: 'eviolite' }; A.deckKey = 'eevee';
   const ev = w5.addSquad('eevee', 0, 10 * TILE, 50 * TILE);
   const em = w5.leaderOf(ev);
   let h = em.hp; w5.damage(em, 20, 0, 1);
@@ -377,6 +384,18 @@ function applyStatusTest(w, u) {
   const bh = brute.hp;
   w5.damage(gd, 30, brute.id, 1, { contact: true });
   ok(brute.hp < bh, 'Rocky Helmet hurts close-range attackers');
+}
+
+// decks are validated: 8 slots, right classes, no duplicates, 3 skills of that Pokémon
+{
+  const bad = { name: 'x', slots: [{ line: 'charmander' }, { line: 'machop' }, { line: 'squirtle', skills: ['thunder', 'healpulse', 'healpulse'] }, { line: 'squirtle' }] };
+  const d = validDeck(bad);
+  const lines = d.slots.map((x) => x.line);
+  ok(d.slots.length === 8 && DECK_POOL.worker.includes(lines[0]) && DECK_POOL.legend.includes(lines[1]) &&
+    lines.slice(2).every((l) => DECK_POOL.fighter.includes(l)) && new Set(lines).size === 8, `invalid deck repaired (${lines.join(',')})`);
+  ok(d.slots[2].skills.length === 3 && d.slots[2].skills.every((k) => SKILLS[k].line === 'squirtle') && new Set(d.slots[2].skills).size === 3, 'skills repaired to 3 of its own');
+  const w6 = new World({ seed: 3, players: [{ deck: AI_DECKS[1] }, {}] });
+  ok(w6.players[0].deck.name === 'Sky Storm' && w6.inDeck(0, 'pidgey') && !w6.inDeck(0, 'snorlax'), 'a player brings their own deck');
 }
 
 // destroying the last Pokémon Center ends the game, even if other buildings remain

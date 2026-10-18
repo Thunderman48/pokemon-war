@@ -1,5 +1,5 @@
 // Computer opponent. Plays through world.issue() just like a human would.
-import { UNITS, FORMS, BUILDINGS, RESEARCH, SKILLS, TILE, DIFFICULTY, researchCost, effectiveness, squadPop, skillResearch } from './config.js';
+import { UNITS, FORMS, BUILDINGS, RESEARCH, SKILLS, TILE, DIFFICULTY, AI_DECKS, researchCost, effectiveness, squadPop, skillResearch } from './config.js';
 import { megaBlock } from './mega.js';
 
 // enemy's most common type -> good counters
@@ -17,6 +17,12 @@ const LINE_RESEARCH = {
 };
 
 export class AI {
+  // the deck the computer brings: Easy keeps to the classic one, harder levels pick any
+  static deckFor(difficulty, seed = 0) {
+    const i = difficulty === 'easy' ? 0 : Math.abs(seed) % AI_DECKS.length;
+    return JSON.parse(JSON.stringify(AI_DECKS[i]));
+  }
+
   constructor(world, pid, difficulty = 'normal') {
     this.w = world;
     this.pid = pid;
@@ -63,9 +69,10 @@ export class AI {
     this.built = false;
 
     // --- economy
-    if (centers.length && workers.length + queued('machop') < this.d.workers * Math.min(2, centers.length)) {
+    const wt = W.workerType(pid);
+    if (centers.length && workers.length + queued(wt) < this.d.workers * Math.min(2, centers.length)) {
       const c = centers.find((x) => x.queue.length < 2);
-      if (c && W.canAfford(pid, UNITS.machop.cost) && me.pop + 1 <= me.cap) W.issue(pid, { c: 'train', id: c.id, type: 'machop' });
+      if (c && W.canAfford(pid, UNITS[wt].cost) && me.pop + 1 <= me.cap) W.issue(pid, { c: 'train', id: c.id, type: wt });
     }
     const hasGym = count('gym') > 0;
     let crystalW = workers.filter((u) => u.order.type === 'gather' && u.order.kind === 'crystal').length;
@@ -122,18 +129,16 @@ export class AI {
     const lab = blds.find((b) => b.type === 'lab' && b.built);
     for (const g of blds.filter((b) => b.type === 'gym' && b.built)) {
       if (g.queue.length >= 2) continue;
-      let t = this.pickUnit(enemyTypes, !!lab, false);
-      if (lab && army.length >= 6 && this.rand() < 0.15 && W.canAfford(pid, UNITS.snorlax.cost) && me.pop + squadPop('snorlax') <= me.cap) t = 'snorlax';
-      if (W.canAfford(pid, UNITS[t].cost) && me.pop + squadPop(t) <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
+      const t = this.pickUnit(enemyTypes, army.length);
+      if (t && W.canAfford(pid, UNITS[t].cost) && me.pop + squadPop(t) <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
       if (!g.rally) this.setRally(g);
     }
     const pillar = blds.find((b) => b.type === 'skypillar' && b.built);
     if (pillar && !pillar.queue.some((q) => q.u)) {
       if (!pillar.rally) this.setRally(pillar);
-      if (W.unitCount(pid, 'rayquaza') < 1 && W.canAfford(pid, UNITS.rayquaza.cost) && me.pop + 10 <= me.cap)
-        W.issue(pid, { c: 'train', id: pillar.id, type: 'rayquaza' });
-      else if (this.rand() < 0.5 && W.canAfford(pid, { b: UNITS.pidgey.cost.b + 150, c: UNITS.pidgey.cost.c + 100 }) && me.pop + squadPop('pidgey') <= me.cap)
-        W.issue(pid, { c: 'train', id: pillar.id, type: 'pidgey' });
+      const lg = me.deck.slots[1].line;
+      if (W.unitCount(pid, lg) < (UNITS[lg].limit || 1) && W.canAfford(pid, UNITS[lg].cost) && me.pop + squadPop(lg) <= me.cap)
+        W.issue(pid, { c: 'train', id: pillar.id, type: lg });
     }
 
     // special moves are auto-cast by the world for every squad
@@ -339,7 +344,7 @@ export class AI {
       const sk = W.loadout(pid, l).filter((k) => this.d.moves || SKILLS[k].kind === 'p');
       wants.push(sk[0] && skillResearch(sk[0]), ...(LINE_RESEARCH[l] || []).slice(0, 1), ...sk.slice(1).map(skillResearch), ...(LINE_RESEARCH[l] || []).slice(1));
     }
-    wants.push(...W.loadout(pid, 'machop').map(skillResearch));
+    wants.push(...W.loadout(pid, W.workerType(pid)).map(skillResearch));
     // Mega Evolution once something can use it
     if (this.key !== 'easy' && army.some((u) => FORMS[u.form].mega)) wants.unshift('keystone');
     wants.push('harvest', 'attack', 'defense', 'drill', 'bigbag');
@@ -374,10 +379,13 @@ export class AI {
     return null;
   }
 
-  pickUnit(enemyTypes, hasLab) {
-    const opts = ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee'];
-    if (hasLab) opts.push('pikachu');
-    const ok = (t) => t !== 'pidgey' && (t !== 'pikachu' || hasLab);
+  // a fighter from the AI's deck: often a counter to the enemy's most common type
+  pickUnit(enemyTypes, armySize) {
+    const W = this.w, pid = this.pid;
+    const opts = W.players[pid].deck.slots.slice(2).map((s) => s.line)
+      .filter((t) => W.reqMet(pid, UNITS[t].req) && (squadPop(t) < 8 || armySize >= 6));
+    if (!opts.length) return null;
+    const ok = (t) => opts.includes(t);
     if (this.d.counter && this.rand() < 0.6) {
       let top = null, tv = 0;
       for (const [k, v] of Object.entries(enemyTypes)) if (v > tv) { tv = v; top = k; }

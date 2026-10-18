@@ -3,6 +3,8 @@ import { loadAssets } from './assets.js';
 import { Game } from './game.js';
 import { host, join } from './net.js';
 import { unlockAudio, isMuted, setMuted, sfx } from './audio.js';
+import { DeckEditor, activeDeck, deckChooserHtml, cycleDeck } from './deck.js';
+import { validDeck } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 let assets = null;
@@ -10,8 +12,14 @@ let game = null;
 let cancelHost = null;
 let lobbyConn = null;
 
+let deckEditor = null;
 function show(id) {
   for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== id;
+  if (id === 's-deck') deckEditor.open();
+  refreshDeckPick();
+}
+function refreshDeckPick() {
+  for (const b of document.querySelectorAll('[data-deckpick]')) b.innerHTML = deckChooserHtml();
 }
 function hideScreens() {
   for (const s of document.querySelectorAll('.screen')) s.hidden = true;
@@ -54,9 +62,16 @@ async function hostGame() {
       setStatus(`Share this code with your friend:<span class="code">${code}</span>Waiting for them to join…`);
     });
     cancelHost = null;
+    setStatus('Friend joined! Swapping decks…');
+    // the guest sends its deck as soon as it connects
+    const guestDeck = await new Promise((res) => {
+      const timer = setTimeout(() => res(null), 6000);
+      conn.onMessage((m) => { if (m && m.t === 'deck') { clearTimeout(timer); res(m.deck); } });
+    });
     const seed = Math.floor(Math.random() * 1e9);
-    conn.send({ t: 'start', seed });
-    start({ mode: 'host', seed, conn });
+    const decks = [activeDeck(), validDeck(guestDeck)];
+    conn.send({ t: 'start', seed, decks });
+    start({ mode: 'host', seed, conn, decks });
   } catch (e) {
     if (e.message !== 'cancelled') setStatus(e.message);
     $('btn-host').disabled = false;
@@ -76,12 +91,17 @@ async function joinGame() {
     const conn = await join(code);
     lobbyConn = conn;
     setStatus('Connected! Starting…');
+    // send our deck until the host starts the match (the first message can race the host's listener)
+    const sendDeck = () => conn.send({ t: 'deck', deck: activeDeck() });
+    const resend = setInterval(sendDeck, 1000);
     conn.onMessage((m) => {
       if (m && m.t === 'start') {
+        clearInterval(resend);
         lobbyConn = null;
-        start({ mode: 'guest', seed: m.seed, conn });
+        start({ mode: 'guest', seed: m.seed, conn, decks: (m.decks || []).map(validDeck) });
       }
     });
+    sendDeck();
     conn.onClose(() => { if (lobbyConn) { setStatus('Host left.'); resetLobby(); } });
   } catch (e) {
     setStatus(e.message);
@@ -99,14 +119,17 @@ async function init() {
     .map((s) => `<img src="assets/units/${s}.png" alt="">`).join('');
 
   document.addEventListener('click', (e) => {
+    const dp = e.target.closest('[data-deckpick]');
+    if (dp) { unlockAudio(); sfx('select'); cycleDeck(); refreshDeckPick(); return; }
     const go = e.target.closest('[data-go]');
     if (go) { unlockAudio(); sfx('select'); show(go.dataset.go); }
     const diff = e.target.closest('[data-diff]');
     if (diff) {
       unlockAudio();
-      start({ mode: 'ai', difficulty: diff.dataset.diff, seed: Math.floor(Math.random() * 1e9) });
+      start({ mode: 'ai', difficulty: diff.dataset.diff, seed: Math.floor(Math.random() * 1e9), decks: [activeDeck()] });
     }
   });
+  deckEditor = new DeckEditor(refreshDeckPick);
   $('btn-host').addEventListener('click', hostGame);
   $('btn-join').addEventListener('click', joinGame);
   $('join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinGame(); });

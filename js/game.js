@@ -10,7 +10,8 @@ import { sfx, unlockAudio } from './audio.js';
 const $ = (id) => document.getElementById(id);
 
 export class Game {
-  constructor({ mode, difficulty = 'normal', seed, conn, assets, onEnd }) {
+  // decks: [player 0's deck, player 1's deck] (missing ones use the default / the AI's deck)
+  constructor({ mode, difficulty = 'normal', seed, conn, assets, onEnd, decks = [] }) {
     this.mode = mode; // 'ai' | 'host' | 'guest'
     this.pid = mode === 'guest' ? 1 : 0;
     this.conn = conn;
@@ -19,7 +20,8 @@ export class Game {
     this.abort = new AbortController();
     this.world = new World({
       seed,
-      players: [{ name: mode === 'guest' ? 'Host' : 'You' }, { name: mode === 'ai' ? 'CPU' : mode === 'host' ? 'Guest' : 'You' }],
+      players: [{ name: mode === 'guest' ? 'Host' : 'You', deck: decks[0] },
+        { name: mode === 'ai' ? 'CPU' : mode === 'host' ? 'Guest' : 'You', deck: decks[1] || (mode === 'ai' ? AI.deckFor(difficulty, seed) : undefined) }],
       sim: mode !== 'guest',
     });
     if (mode === 'ai') this.ai = new AI(this.world, 1, difficulty);
@@ -790,7 +792,7 @@ export class Game {
       const own = b.owner === pid;
       const opts = [];
       if (own && b.built) {
-        for (const k of def.trains || []) opts.push(+afford(UNITS[k].cost) + '' + +W.reqMet(pid, UNITS[k].req));
+        for (const k of (def.trains || []).filter((t) => W.inDeck(pid, t))) opts.push(+afford(UNITS[k].cost) + '' + +W.reqMet(pid, UNITS[k].req));
         for (const k of def.research || []) opts.push(k + (P.research[k] || 0) + +afford(researchCost(k, P.research[k] || 0)) + (W.researchBlock(pid, k) || ''));
       }
       sig = `B|${b.id}|${b.built}|${b.queue.map((q) => q.u || q.r).join(',')}|${opts.join('')}|${this.page}|${this.labCat}`;
@@ -804,7 +806,7 @@ export class Game {
           b.queue.length ? `<div class="queue">${q}</div>` : `<div class="desc">${def.desc}</div>`}</div>`;
       const items = [];
       if (own && b.built) {
-        for (const k of def.trains || []) {
+        for (const k of (def.trains || []).filter((t) => W.inDeck(pid, t))) {
           const d = UNITS[k];
           const locked = !W.reqMet(pid, d.req);
           const n = squadSize(k);
