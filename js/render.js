@@ -193,8 +193,18 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
     // health bars on top
+    const squadBars = new Map();
     for (const e of list) {
       if (e.kind === 'res') { if (sel.has(e.id)) this.bar(e.rx - 7, e.ry - 11, 14, e.amount / e.max, '#ffd34d'); continue; }
+      if (e.kind === 'unit' && e.sq && world.squads.has(e.sq) && world.squads.get(e.sq).size > 1) {
+        // squads get one shared bar (below)
+        const g = squadBars.get(e.sq) || { top: Infinity, x: 0, n: 0, sel: false };
+        g.top = Math.min(g.top, e.ry + 4 - (this.spriteFor(e) || { height: 16 }).height * this.unitScale(e) - this.lift(e, now) - 2);
+        g.x += e.rx; g.n++;
+        g.sel = g.sel || sel.has(e.id);
+        squadBars.set(e.sq, g);
+        continue;
+      }
       const show = sel.has(e.id) || e.hp < e.maxHp;
       if (!show) continue;
       if (e.kind === 'unit') {
@@ -204,6 +214,23 @@ export class Renderer {
         const img = this.spriteFor(e);
         const top = (e.ty + e.h) * TILE - (img ? img.height : e.h * TILE);
         this.bar(e.tx * TILE + 4, top - 3, e.w * TILE - 8, e.hp / e.maxHp);
+      }
+    }
+    for (const [id, g] of squadBars) {
+      const sq = world.squads.get(id);
+      const ms = sq.members.map((m) => world.ents.get(m)).filter(Boolean);
+      const per = ms.length ? ms[0].maxHp : 1;
+      const hp = ms.reduce((s, m) => s + Math.max(0, m.hp), 0), max = per * sq.size;
+      if (!g.sel && hp >= max - 0.5) continue;
+      const w = 22, x = g.x / g.n - w / 2, y = g.top - 4;
+      this.bar(x, y, w, hp / max);
+      // one pip per member: filled = alive, hollow = waiting for reinforcement
+      const ctx2 = this.ctx;
+      for (let i = 0; i < sq.size; i++) {
+        const px = x + w / 2 - (sq.size * 4 - 1) / 2 + i * 4;
+        ctx2.fillStyle = 'rgba(20,16,30,0.85)'; ctx2.fillRect(px - 0.5, y + 3.5, 3, 3);
+        ctx2.fillStyle = i < sq.members.length ? (sq.owner === pid ? '#ffffff' : '#ffb0b0') : '#55506a';
+        ctx2.fillRect(px, y + 4, 2, 2);
       }
     }
     // rally point of selected own building
@@ -413,7 +440,7 @@ export class Renderer {
       const life = f.k === 'p' ? f.d : f.k === 'evo' ? 1.4 : f.k === 'die' ? (f.b ? 0.9 : 0.5) : f.k === 'heal' ? 0.7 :
         f.k === 'zap' ? 0.5 : f.k === 'bolt' ? 0.6 : f.k === 'healp' ? 0.8 : f.k === 'sleep' ? 1.2 : f.k === 'boom' ? 1.0 :
         f.k === 'ascent' ? 1.0 : f.k === 'mark' || f.k === 'dive' || f.k === 'drain' ? f.d : f.k === 'quake' ? 1.5 :
-        f.k === 'drained' ? 1.3 : 0.3;
+        f.k === 'drained' ? 1.3 : f.k === 'reinforce' ? 0.7 : 0.3;
       if (age > life) { this.fx.splice(i, 1); continue; }
       const t = age / life;
       const fxX = f.k === 'p' ? f.x2 : f.k === 'drain' ? f.x1 : f.x, fxY = f.k === 'p' ? f.y2 : f.k === 'drain' ? f.y1 : f.y;
@@ -449,6 +476,20 @@ export class Renderer {
         for (let j = 0; j < 6; j++) {
           const a = j + t * 6;
           ctx.fillRect(f.x + Math.cos(a) * 12 - 1, f.y - 6 + Math.sin(a) * 12 - t * 10, 2, 2);
+        }
+      } else if (f.k === 'reinforce') {
+        // a fresh squad member pops out of a Poké Ball
+        if (t < 0.35) {
+          const k = t / 0.35, by = f.y - 4 - Math.sin(k * Math.PI) * 10;
+          ctx.fillStyle = '#e83030'; ctx.fillRect(f.x - 2, by - 2, 5, 2);
+          ctx.fillStyle = '#f4f4f4'; ctx.fillRect(f.x - 2, by, 5, 2);
+          ctx.fillStyle = '#222'; ctx.fillRect(f.x - 2, by, 5, 1);
+        } else {
+          const k = (t - 0.35) / 0.65;
+          ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.ellipse(f.x, f.y - 4, 3 + k * 10, (3 + k * 10) * 0.7, 0, 0, Math.PI * 2); ctx.stroke();
+          ctx.fillStyle = `rgba(255,255,255,${0.6 * (1 - k)})`;
+          ctx.beginPath(); ctx.ellipse(f.x, f.y - 4, 6 * (1 - k) + 2, 5 * (1 - k) + 2, 0, 0, Math.PI * 2); ctx.fill();
         }
       } else if (f.k === 'heal') {
         ctx.fillStyle = `rgba(110,255,140,${1 - t})`;

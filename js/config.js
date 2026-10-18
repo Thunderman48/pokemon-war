@@ -1,14 +1,19 @@
 // Game data: units, evolutions, buildings, research, moves, type chart.
 // Tweak numbers here to rebalance.
-export const VERSION = 'V2';
+export const VERSION = 'V3';
 export const TILE = 16;
 export const MAP_SIZE = 64;
 export const TICK = 1 / 20; // simulation step (seconds)
-export const MAX_POP = 120;
+export const MAX_POP = 200;
 // out-of-combat regeneration: after REGEN_DELAY seconds without dealing or taking damage,
 // Pokémon heal REGEN_RATE of their max HP per second
 export const REGEN_DELAY = 5;
 export const REGEN_RATE = 0.02;
+// squads refill fallen members on their own: after REINFORCE_DELAY seconds out of combat,
+// one member returns every REINFORCE_TIME seconds for REINFORCE_COST of a member's price
+export const REINFORCE_DELAY = 4;
+export const REINFORCE_TIME = 3;
+export const REINFORCE_COST = 0.3;
 
 export const TEAM_COLORS = ['#3d8bff', '#ff4d4d'];
 export const TEAM_NAMES = ['Blue', 'Red'];
@@ -43,6 +48,8 @@ export const EVO_MULT = [
 ];
 
 // Trainable Pokémon (base forms). range/speed/sight in tiles, cd in seconds.
+// Battle Pokémon come in squads: `squad` members, each with these stats. cost/time are per squad,
+// pop is per member (a squad takes pop × squad supply).
 export const UNITS = {
   machop: {
     name: 'Machop', hp: 60, dmg: 5, cd: 1.0, range: 0.4, speed: 2.6, sight: 6,
@@ -50,43 +57,43 @@ export const UNITS = {
     desc: 'Worker. Gathers berries & crystals and builds.',
   },
   charmander: {
-    name: 'Charmander', hp: 90, dmg: 11, cd: 1.0, range: 3.5, speed: 2.4, sight: 7,
-    cost: { b: 75, c: 25 }, time: 16, pop: 2, radius: 5, proj: 'ember',
+    name: 'Charmander', hp: 55, dmg: 6.5, cd: 1.0, range: 3.5, speed: 2.4, sight: 7, squad: 4,
+    cost: { b: 140, c: 45 }, time: 22, pop: 1, radius: 5, proj: 'ember',
     desc: 'Ranged fire attacker. Strong vs Grass. Charizard can fly!',
   },
   squirtle: {
-    name: 'Squirtle', hp: 160, dmg: 9, cd: 0.9, range: 1.2, speed: 2.2, sight: 6,
-    cost: { b: 75, c: 25 }, time: 16, pop: 2, radius: 6, proj: 'water',
+    name: 'Squirtle', hp: 95, dmg: 5.5, cd: 0.9, range: 1.2, speed: 2.2, sight: 6, squad: 4,
+    cost: { b: 140, c: 45 }, time: 22, pop: 1, radius: 6, proj: 'water',
     desc: 'Tough short-range fighter. Strong vs Fire & Rock. Knows Heal Pulse.',
   },
   bulbasaur: {
-    name: 'Bulbasaur', hp: 105, dmg: 13, cd: 1.3, range: 4.5, speed: 2.1, sight: 7,
-    cost: { b: 60, c: 60 }, time: 18, pop: 2, radius: 6, proj: 'leaf',
+    name: 'Bulbasaur', hp: 62, dmg: 8, cd: 1.3, range: 4.5, speed: 2.1, sight: 7, squad: 4,
+    cost: { b: 115, c: 110 }, time: 24, pop: 1, radius: 6, proj: 'leaf',
     desc: 'Long-range grass sniper. Strong vs Water & Rock. Knows Sleep Powder.',
   },
   geodude: {
-    name: 'Geodude', hp: 175, dmg: 10, cd: 1.2, range: 2, speed: 1.8, sight: 6,
-    cost: { b: 60, c: 50 }, time: 18, pop: 2, radius: 6, proj: 'rock', siege: 1.3,
+    name: 'Geodude', hp: 140, dmg: 8, cd: 1.2, range: 2, speed: 1.8, sight: 6, squad: 3,
+    cost: { b: 115, c: 95 }, time: 24, pop: 1, radius: 6, proj: 'rock', siege: 1.3,
     desc: 'Rocky tank that throws stones. Strong vs Fire & Flying.',
   },
   eevee: {
-    name: 'Eevee', hp: 100, dmg: 9, cd: 0.9, range: 2.5, speed: 2.7, sight: 7,
-    cost: { b: 60, c: 50 }, time: 16, pop: 2, radius: 5, proj: 'star',
+    name: 'Eevee', hp: 60, dmg: 5.5, cd: 0.9, range: 2.5, speed: 2.7, sight: 7, squad: 4,
+    cost: { b: 115, c: 95 }, time: 22, pop: 1, radius: 5, proj: 'star',
     desc: 'Can evolve into Vaporeon, Jolteon or Flareon — your choice!',
   },
   pikachu: {
-    name: 'Pikachu', hp: 85, dmg: 7, cd: 0.55, range: 3, speed: 3.3, sight: 8,
-    cost: { b: 75, c: 75 }, time: 18, pop: 2, radius: 5, proj: 'bolt', req: 'lab',
+    name: 'Pikachu', hp: 50, dmg: 4.2, cd: 0.55, range: 3, speed: 3.3, sight: 8, squad: 4,
+    cost: { b: 140, c: 140 }, time: 24, pop: 1, radius: 5, proj: 'bolt', req: 'lab',
     desc: 'Fast, rapid attacks. Strong vs Water & Flying. Knows Thunder.',
   },
   snorlax: {
-    name: 'Snorlax', hp: 650, dmg: 30, cd: 1.6, range: 0.6, speed: 1.4, sight: 6,
-    cost: { b: 150, c: 200 }, time: 35, pop: 6, radius: 10, siege: 2, req: 'lab',
+    name: 'Snorlax', hp: 450, dmg: 22, cd: 1.6, range: 0.6, speed: 1.4, sight: 6, squad: 2,
+    cost: { b: 250, c: 330 }, time: 45, pop: 4, radius: 10, siege: 2, req: 'lab',
     desc: 'Huge tank. Smashes buildings for double damage. Can\'t hit flyers.',
   },
   pidgey: {
-    name: 'Pidgey', hp: 75, dmg: 8, cd: 0.8, range: 2, speed: 3.8, sight: 8,
-    cost: { b: 60, c: 60 }, time: 16, pop: 2, radius: 5, proj: 'gust', flying: true,
+    name: 'Pidgey', hp: 45, dmg: 5, cd: 0.8, range: 2, speed: 3.8, sight: 8, squad: 4,
+    cost: { b: 115, c: 115 }, time: 22, pop: 1, radius: 5, proj: 'gust', flying: true,
     desc: 'Flies over trees and water. Strong vs Grass & Fighting.',
   },
   rayquaza: {
@@ -132,13 +139,13 @@ export const FORMS = {
 
 export const BUILDINGS = {
   center: {
-    name: 'Pokémon Center', short: 'CENTER', w: 3, h: 3, hp: 1500, cost: { b: 400, c: 0 }, time: 60, pop: 10, sight: 8,
+    name: 'Pokémon Center', short: 'CENTER', w: 3, h: 3, hp: 1500, cost: { b: 400, c: 0 }, time: 60, pop: 15, sight: 8,
     trains: ['machop'], dropoff: true, heal: true,
     desc: 'HQ. Trains workers, stores resources, heals nearby Pokémon.',
   },
   mart: {
-    name: 'Poké Mart', short: 'MART', w: 2, h: 2, hp: 450, cost: { b: 100, c: 0 }, time: 20, pop: 10, sight: 5,
-    desc: '+10 supply (+15 with Mart Expansion).',
+    name: 'Poké Mart', short: 'MART', w: 2, h: 2, hp: 450, cost: { b: 100, c: 0 }, time: 20, pop: 15, sight: 5,
+    desc: '+15 supply (+20 with Mart Expansion).',
   },
   gym: {
     name: 'Gym', short: 'GYM', w: 3, h: 3, hp: 1000, cost: { b: 150, c: 0 }, time: 35, sight: 6,
@@ -192,7 +199,7 @@ export const RESEARCH = {
   move_sleep: { name: 'Sleep Powder', icon: 'i:sleep', cost: { b: 125, c: 100 }, time: 35, desc: 'Bulbasaur line puts enemies in an area to sleep.' },
   harvest: { name: 'Harvest', levels: 2, cost: { b: 100, c: 50 }, time: 35, desc: 'Workers gather 20% faster per level.' },
   bigbag: { name: 'Big Bag', cost: { b: 150, c: 50 }, time: 40, desc: 'Workers carry 50% more per trip.' },
-  martplus: { name: 'Mart Expansion', cost: { b: 125, c: 50 }, time: 35, desc: 'Each Poké Mart gives +15 supply instead of +10.' },
+  martplus: { name: 'Mart Expansion', cost: { b: 125, c: 50 }, time: 35, desc: 'Each Poké Mart gives +20 supply instead of +15.' },
   fortify: { name: 'Fortify', cost: { b: 150, c: 100 }, time: 40, desc: 'All buildings get +50% max HP.' },
   drill: { name: 'Training Drill', cost: { b: 150, c: 100 }, time: 40, desc: 'Pokémon train 25% faster.' },
   towerup: { name: 'Tower Upgrade', levels: 2, cost: { b: 100, c: 100 }, time: 35, desc: 'Towers deal +40% damage and +1 range per level.' },
@@ -219,6 +226,13 @@ export const RESOURCES = {
   berry: { name: 'Berry Bush', amount: 600, per: 8, time: 1.6 },
   crystal: { name: 'Crystal', amount: 600, per: 5, time: 2.0 },
 };
+
+export const squadSize = (type) => UNITS[type].squad || 1;
+export const squadPop = (type) => UNITS[type].pop * squadSize(type);
+export function reinforceCost(type) {
+  const c = UNITS[type].cost, n = squadSize(type);
+  return { b: Math.round((c.b || 0) / n * REINFORCE_COST), c: Math.round((c.c || 0) / n * REINFORCE_COST) };
+}
 
 export const UNIT_KEYS = Object.keys(UNITS);
 export const FORM_KEYS = Object.keys(FORMS);

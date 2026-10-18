@@ -1,5 +1,5 @@
 // Game controller: main loop, touch/mouse input, selection, HUD panel, networking glue.
-import { TICK, TILE, UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, EVO_XP, TYPE_COLORS, researchCost, researchTime } from './config.js';
+import { TICK, TILE, UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, EVO_XP, TYPE_COLORS, researchCost, researchTime, squadSize, squadPop } from './config.js';
 import { World, isFlying } from './world.js';
 import { AI } from './ai.js';
 import { Renderer } from './render.js';
@@ -22,6 +22,7 @@ export class Game {
     });
     if (mode === 'ai') this.ai = new AI(this.world, 1, difficulty);
     this.selection = new Set();
+    this.selSquads = new Set();
     this.placing = null;
     this.forceMove = false;
     this.buildMenu = false;
@@ -135,8 +136,15 @@ export class Game {
     } else {
       alpha = Math.min(1, (now - this.snapAt) / this.snapGap);
     }
-    // drop dead entities from selection
+    // drop dead entities from selection; reinforcements join their selected squad
     for (const id of this.selection) if (!W.ents.has(id)) this.selection.delete(id);
+    if (this.selSquads.size) {
+      for (const sid of this.selSquads) {
+        const sq = W.squads.get(sid);
+        if (!sq) { this.selSquads.delete(sid); continue; }
+        for (const id of sq.members) this.selection.add(id);
+      }
+    }
     if (this.placing && !this.selectedWorkers().length) this.cancelPlacement();
     this.keyPan(dt);
     if (this.placing) this.placing.ok = W.canPlace(this.placing.type, this.placing.tx, this.placing.ty, this.pid);
@@ -218,9 +226,28 @@ export class Game {
   selectedUnits() { return this.selectedEnts().filter((e) => e.kind === 'unit' && e.owner === this.pid); }
   selectedWorkers() { return this.selectedUnits().filter((u) => UNITS[u.type].worker); }
   selectedBuilding() { return this.selectedEnts().find((e) => e.kind === 'building' && e.owner === this.pid); }
+  // selected units grouped by squad (lone units are their own group)
+  groups(units) {
+    const m = new Map();
+    for (const u of units) {
+      const k = u.sq || 'u' + u.id;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(u);
+    }
+    return [...m.values()];
+  }
 
+  // Selecting any member of a squad selects the whole squad.
   select(ids) {
+    const W = this.world;
     this.selection = new Set(ids);
+    this.selSquads = new Set();
+    for (const id of ids) {
+      const sq = W.squadOf(W.ents.get(id));
+      if (!sq || sq.owner !== this.pid) continue;
+      this.selSquads.add(sq.id);
+      for (const m of sq.members) this.selection.add(m);
+    }
     this.buildMenu = false;
     this.forceMove = false;
     this.casting = null;
@@ -682,13 +709,16 @@ export class Game {
       const workers = units.some((u) => UNITS[u.type].worker);
       const u = units[0];
       const abil = [...new Set(units.map((x) => FORMS[x.form].ability).filter(Boolean))];
-      const evoChoices = units.length === 1 && u.evoReady ? (FORMS[u.form].next || []).filter((n) => P.research[n.r]) : [];
+      const groups = this.groups(units);
+      const one = groups.length === 1;
+      const sq = one ? W.squadOf(u) : null;
+      const evoChoices = one && u.evoReady ? (FORMS[u.form].next || []).filter((n) => P.research[n.r]) : [];
       sig = `U|${units.map((x) => x.id + ':' + x.form).join(',')}|${this.buildMenu}|${this.forceMove}|${this.casting}|${this.page}|` +
         `${abil.map((k) => k + P.research[ABILITIES[k].research]).join(',')}|${evoChoices.map((n) => n.to).join(',')}|` +
         `${workers && this.buildMenu ? Object.keys(BUILDINGS).map((k) => +afford(BUILDINGS[k].cost) + '' + +W.reqMet(pid, BUILDINGS[k].req)).join('') : ''}|` +
-        `${units.length === 1 ? JSON.stringify(P.research) : ''}`;
+        `${one ? JSON.stringify(P.research) : ''}|${groups.length}`;
       if (sig === this.panelSig) return this.updateDynamic(ents);
-      if (units.length === 1) {
+      if (one) {
         const def = UNITS[u.type], f = FORMS[u.form];
         const st = W.stats(u);
         const nexts = f.next || [];
@@ -699,15 +729,15 @@ export class Game {
           const done = nexts.filter((n) => P.research[n.r]);
           evoTxt = `Evolves at ${EVO_XP[f.stage + 1]} XP` + (done.length ? '' : ` · needs ${nexts.map((n) => RESEARCH[n.r].name).join(' / ')}`);
         }
-        info = `<div class="portrait"><img src="assets/units/${u.form}.png" alt=""></div>
-          <div class="details"><div class="name">${f.name}</div>
+        info = `<div class="portrait"><img src="assets/units/${u.form}.png" alt="">${sq ? '<b class="pips" data-bind="pips"></b>' : ''}</div>
+          <div class="details"><div class="name">${f.name}${sq && sq.size > 1 ? ' SQUAD' : ''}</div>
           <div class="sub"><span class="type" style="background:${TYPE_COLORS[f.type]}">${f.type.toUpperCase()}</span><span data-bind="hptext"></span></div>
           <div class="meter"><i data-bind="hp"></i></div>
           ${nexts.length ? `<div class="meter xp"><i data-bind="xp"></i></div>` : ''}
           ${evoTxt ? `<div class="sub">${evoTxt}</div>` : `<div class="desc">${def.desc}</div>`}
           <div class="sub">ATK ${Math.round(st.dmg)} · RNG ${(st.range / TILE).toFixed(1)}${isFlying(u) ? ' · FLYING' : ''} · <span data-bind="status"></span></div></div>`;
       } else {
-        info = `<div class="multi">${units.slice(0, 24).map((x) => `<button class="mini" data-a="only" data-v="${x.id}"><img src="assets/units/${x.form}.png" alt=""><b data-hpid="${x.id}"></b></button>`).join('')}</div>`;
+        info = `<div class="multi">${groups.slice(0, 24).map((g) => `<button class="mini" data-a="only" data-v="${g[0].id}"><img src="assets/units/${g[0].form}.png" alt="">${g[0].sq ? `<i class="cnt" data-sqn="${g[0].sq}"></i>` : ''}<b data-hpid="${g[0].sq ? 's' + g[0].sq : g[0].id}"></b></button>`).join('')}</div>`;
       }
       const items = [];
       if (this.buildMenu && workers) {
@@ -752,7 +782,8 @@ export class Game {
         for (const k of def.trains || []) {
           const d = UNITS[k];
           const locked = !W.reqMet(pid, d.req);
-          items.push(`<button class="cmd${!afford(d.cost) ? ' off' : ''}${locked ? ' locked' : ''}" data-a="train" data-v="${k}"><img src="assets/units/${k}.png" alt="">${this.lbl(d.name.toUpperCase())}${this.costHtml(d.cost)}</button>`);
+          const n = squadSize(k);
+          items.push(`<button class="cmd${!afford(d.cost) ? ' off' : ''}${locked ? ' locked' : ''}" data-a="train" data-v="${k}"><img src="assets/units/${k}.png" alt="">${n > 1 ? `<i class="cnt">×${n}</i>` : ''}${this.lbl(d.name.toUpperCase())}${this.costHtml(d.cost)}</button>`);
         }
         for (const k of def.research || []) {
           const r = RESEARCH[k];
@@ -796,17 +827,25 @@ export class Game {
     const e = ents[0];
     if (!e) return;
     const set = (k, fn, root = info) => { const el = root.querySelector(`[data-bind="${k}"]`); if (el) fn(el); };
+    const W = this.world;
+    const sq = e.kind === 'unit' && e.owner === this.pid ? W.squadOf(e) : null;
     if (e.kind !== 'res') {
-      set('hp', (el) => { el.style.width = `${(100 * e.hp) / e.maxHp}%`; el.style.background = e.hp / e.maxHp > 0.5 ? '' : e.hp / e.maxHp > 0.25 ? '#f2d03b' : '#f2503b'; });
-      set('hptext', (el) => { el.textContent = `HP ${Math.ceil(e.hp)}/${e.maxHp}`; });
+      // a squad shows the HP of all its members against its full size
+      const [hp, max] = sq ? this.squadHp(sq) : [e.hp, e.maxHp];
+      set('hp', (el) => { el.style.width = `${(100 * hp) / max}%`; el.style.background = hp / max > 0.5 ? '' : hp / max > 0.25 ? '#f2d03b' : '#f2503b'; });
+      set('hptext', (el) => { el.textContent = `HP ${Math.ceil(hp)}/${Math.round(max)}`; });
     }
+    if (sq) set('pips', (el) => {
+      const h = '●'.repeat(sq.members.length) + '○'.repeat(Math.max(0, sq.size - sq.members.length));
+      if (el.textContent !== h) el.textContent = h;
+    });
     if (e.kind === 'unit') {
       const f = FORMS[e.form];
       const lo = EVO_XP[f.stage] || 0, hi = EVO_XP[f.stage + 1];
       set('xp', (el) => { el.style.width = f.next && hi ? `${Math.min(100, (100 * (e.xp - lo)) / (hi - lo))}%` : '100%'; });
       const o = e.order.type;
       set('status', (el) => {
-        el.textContent = e.sleep > 0 ? 'ASLEEP' : o === 'gather' ? 'GATHERING' : o === 'build' ? 'BUILDING' : o === 'attack' ? 'FIGHTING' :
+        el.textContent = sq && sq.members.length < sq.size ? (sq.rT > 0 ? 'REINFORCING' : o === 'attack' ? 'FIGHTING' : 'WAITING TO REINFORCE') : e.sleep > 0 ? 'ASLEEP' : o === 'gather' ? 'GATHERING' : o === 'build' ? 'BUILDING' : o === 'attack' ? 'FIGHTING' :
           o === 'cast' ? 'USING MOVE' : o === 'move' ? 'MOVING' : 'IDLE';
       });
       // move cooldowns
@@ -827,10 +866,24 @@ export class Game {
     }
     if (e.kind === 'res') set('amount', (el) => { el.textContent = `${e.amount} left`; });
     for (const el of info.querySelectorAll('[data-hpid]')) {
-      const u = this.world.ents.get(+el.dataset.hpid);
-      if (u) el.style.width = `${(100 * u.hp) / u.maxHp}%`;
+      const id = el.dataset.hpid;
+      const q = id[0] === 's' && W.squads.get(+id.slice(1));
+      const u = !q && W.ents.get(+id);
+      if (q) { const [hp, max] = this.squadHp(q); el.style.width = `${(100 * hp) / max}%`; }
+      else if (u) el.style.width = `${(100 * u.hp) / u.maxHp}%`;
       else el.parentElement.style.opacity = 0.3;
     }
+    for (const el of info.querySelectorAll('[data-sqn]')) {
+      const q = W.squads.get(+el.dataset.sqn);
+      const t = q ? `${q.members.length}/${q.size}` : '';
+      if (el.textContent !== t) el.textContent = t;
+    }
+  }
+
+  squadHp(sq) {
+    const ms = this.world.squadUnits(sq);
+    const per = ms.length ? ms[0].maxHp : 1;
+    return [ms.reduce((s, m) => s + Math.max(0, m.hp), 0), per * sq.size];
   }
 
   onPanelClick(e) {
@@ -864,7 +917,7 @@ export class Game {
         if (d.limit && W.unitCount(pid, v) >= d.limit) { fail(`Only ${d.limit} ${d.name} allowed`); break; }
         if (!W.canAfford(pid, d.cost)) { fail('Not enough resources'); break; }
         const P = W.players[pid];
-        if (P.pop + d.pop > P.cap) { fail('Need more supply — build a Poké Mart'); break; }
+        if (P.pop + squadPop(v) > P.cap) { fail('Need more supply — build a Poké Mart'); break; }
         this.issue({ c: 'train', id: b.id, type: v });
         sfx('train');
         break;

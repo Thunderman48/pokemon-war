@@ -1,5 +1,5 @@
 // Computer opponent. Plays through world.issue() just like a human would.
-import { UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, TILE, DIFFICULTY, researchCost, effectiveness } from './config.js';
+import { UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, TILE, DIFFICULTY, researchCost, effectiveness, squadPop } from './config.js';
 
 // enemy's most common type -> good counters
 const COUNTER = {
@@ -29,7 +29,7 @@ export class AI {
     this.wave = this.d.firstWave;
     this.state = 'build'; // build -> stage -> attack
     this.stageT = 0;
-    this.retreat = new Set(); // wounded units pulled back to heal
+    this.retreat = new Set(); // wounded squads (by squad key) pulled back to heal and refill
     this.enemy = 1 - pid;
     const s = world.map.starts[pid];
     this.homeT = { x: s.tx + 1, y: s.ty + 1 };
@@ -91,7 +91,7 @@ export class AI {
 
     // --- buildings
     const pendingMart = blds.some((b) => b.type === 'mart' && !b.built);
-    if (me.cap < 120 && me.cap - me.pop <= 4 + 3 * count('gym', true) && !pendingMart) this.build('mart', workers);
+    if (me.cap < 200 && me.cap - me.pop <= 6 + 5 * count('gym', true) && !pendingMart) this.build('mart', workers);
     if (!hasGym && workers.length >= 8) this.build('gym', workers);
     if (count('gym', true) && !count('lab') && workers.length >= 11 && W.time > (this.key === 'easy' ? 420 : 220)) this.build('lab', workers);
     if (this.key !== 'easy' && count('gym', true) === 1 && count('gym') === 1 && W.time > 330 && me.b > 300) this.build('gym', workers);
@@ -122,8 +122,8 @@ export class AI {
     for (const g of blds.filter((b) => b.type === 'gym' && b.built)) {
       if (g.queue.length >= 2) continue;
       let t = this.pickUnit(enemyTypes, !!lab, false);
-      if (lab && army.length >= 6 && this.rand() < 0.15 && W.canAfford(pid, UNITS.snorlax.cost) && me.pop + 6 <= me.cap) t = 'snorlax';
-      if (W.canAfford(pid, UNITS[t].cost) && me.pop + UNITS[t].pop <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
+      if (lab && army.length >= 6 && this.rand() < 0.15 && W.canAfford(pid, UNITS.snorlax.cost) && me.pop + squadPop('snorlax') <= me.cap) t = 'snorlax';
+      if (W.canAfford(pid, UNITS[t].cost) && me.pop + squadPop(t) <= me.cap) W.issue(pid, { c: 'train', id: g.id, type: t });
       if (!g.rally) this.setRally(g);
     }
     const pillar = blds.find((b) => b.type === 'skypillar' && b.built);
@@ -131,7 +131,7 @@ export class AI {
       if (!pillar.rally) this.setRally(pillar);
       if (W.unitCount(pid, 'rayquaza') < 1 && W.canAfford(pid, UNITS.rayquaza.cost) && me.pop + 10 <= me.cap)
         W.issue(pid, { c: 'train', id: pillar.id, type: 'rayquaza' });
-      else if (this.rand() < 0.5 && W.canAfford(pid, { b: UNITS.pidgey.cost.b + 150, c: UNITS.pidgey.cost.c + 100 }) && me.pop + 2 <= me.cap)
+      else if (this.rand() < 0.5 && W.canAfford(pid, { b: UNITS.pidgey.cost.b + 150, c: UNITS.pidgey.cost.c + 100 }) && me.pop + squadPop('pidgey') <= me.cap)
         W.issue(pid, { c: 'train', id: pillar.id, type: 'pidgey' });
     }
 
@@ -181,16 +181,28 @@ export class AI {
     const homeD = (u) => Math.hypot(u.x - this.home.x, u.y - this.home.y);
 
     // wounded Pokémon fall back to the Center to regenerate, then rejoin
-    for (const id of this.retreat) {
-      const u = W.ents.get(id);
-      if (!u || u.hp >= u.maxHp * 0.85) this.retreat.delete(id);
+    // squads retreat and rejoin together; they also refill their fallen members at home
+    const key = (u) => u.sq || 'u' + u.id;
+    const groups = new Map();
+    for (const u of army) {
+      if (!groups.has(key(u))) groups.set(key(u), []);
+      groups.get(key(u)).push(u);
     }
-    if (smart) for (const u of army) {
-      if (this.retreat.has(u.id) || u.ascend || u.hp > u.maxHp * 0.3 || homeD(u) < 16 * TILE) continue;
-      this.retreat.add(u.id);
-      W.issue(pid, { c: 'move', ids: [u.id], x: this.home.x, y: this.home.y, attack: false });
+    for (const k of this.retreat) {
+      const g = groups.get(k);
+      const sq = g && W.squadOf(g[0]);
+      if (!g || (g.every((u) => u.hp >= u.maxHp * 0.85) && (!sq || g.length >= sq.size || sq.warned))) this.retreat.delete(k);
     }
-    const ready = army.filter((u) => !this.retreat.has(u.id));
+    if (smart) for (const [k, g] of groups) {
+      const lead = g[0], sq = W.squadOf(lead);
+      if (this.retreat.has(k) || g.some((u) => u.ascend) || homeD(lead) < 16 * TILE) continue;
+      const hp = g.reduce((s, u) => s + u.hp, 0), max = lead.maxHp * (sq ? sq.size : 1);
+      if (hp > max * 0.3) continue;
+      this.retreat.add(k);
+      W.issue(pid, { c: 'move', ids: g.map((u) => u.id), x: this.home.x, y: this.home.y, attack: false });
+    }
+    this.retreatIds = new Set(army.filter((u) => this.retreat.has(key(u))).map((u) => u.id));
+    const ready = army.filter((u) => !this.retreatIds.has(u.id));
 
     // enemies close to our buildings
     const intruders = W.unitsOf(this.enemy).filter((e) => !UNITS[e.type].worker &&
@@ -199,7 +211,7 @@ export class AI {
       const c = this.centroid(intruders);
       const threatS = this.strength(this.enemy, c.x, c.y, 10 * TILE);
       const nearHome = ready.filter((u) => homeD(u) < 22 * TILE);
-      const homeS = this.strength(pid, c.x, c.y, 22 * TILE, this.retreat);
+      const homeS = this.strength(pid, c.x, c.y, 22 * TILE, this.retreatIds);
       // the base is in real danger: call the attack back
       if (this.state !== 'build' && (!smart || threatS > homeS * 0.8)) {
         this.state = 'build';
@@ -209,7 +221,7 @@ export class AI {
       const defenders = (this.state === 'build' ? ready : nearHome).filter((u) => u.order.type !== 'attack' && u.order.type !== 'cast');
       if (defenders.length) W.issue(pid, { c: 'move', ids: ids(defenders), x: c.x, y: c.y, attack: true });
       // retreating units help too if the fight is at the door
-      const hurt = army.filter((u) => this.retreat.has(u.id) && u.order.type === 'idle');
+      const hurt = army.filter((u) => this.retreatIds.has(u.id) && u.order.type === 'idle');
       if (hurt.length) W.issue(pid, { c: 'move', ids: ids(hurt), x: c.x, y: c.y, attack: true });
     } else if (this.state === 'build') {
       if (pop(ready) >= this.wave) {
@@ -238,7 +250,7 @@ export class AI {
       let outmatched = false;
       if (smart && front.length) {
         const c = this.centroid(front);
-        const mine = this.strength(pid, c.x, c.y, 12 * TILE, this.retreat);
+        const mine = this.strength(pid, c.x, c.y, 12 * TILE, this.retreatIds);
         const theirs = this.strength(this.enemy, c.x, c.y, 13 * TILE);
         outmatched = theirs > mine * 1.5;
       }
@@ -252,7 +264,7 @@ export class AI {
         if (idleFront.length && t) W.issue(pid, { c: 'move', ids: ids(idleFront), x: t.x, y: t.y, attack: true });
         // reinforcements join the army in groups instead of trickling in one by one
         const fresh = ready.filter((u) => homeD(u) <= 20 * TILE && u.order.type === 'idle');
-        if (pop(fresh) >= 6 || (fresh.length && !front.length)) {
+        if (pop(fresh) >= 8 || (fresh.length && !front.length)) {
           const to = front.length ? this.centroid(front) : t;
           if (to) W.issue(pid, { c: 'move', ids: ids(fresh), x: to.x, y: to.y, attack: true });
         }

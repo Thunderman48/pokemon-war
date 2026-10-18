@@ -2,6 +2,7 @@
 import {
   TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ABILITIES, EVO_XP, EVO_MULT,
   UNIT_KEYS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, effectiveness, researchCost, researchTime, REGEN_DELAY, REGEN_RATE,
+  REINFORCE_DELAY, REINFORCE_TIME, squadSize, squadPop, reinforceCost,
 } from './config.js';
 import { generateMap, tileBlocked } from './map.js';
 import { Pathfinder } from './path.js';
@@ -50,6 +51,8 @@ export class World {
     for (let i = 0; i < w * h; i++) this.terrainBlocked[i] = tileBlocked(this.map.tiles[i]) ? 1 : 0;
     this.occ = new Int32Array(w * h);
     this.ents = new Map();
+    // squads: { id, owner, type, form, size, members: [unit ids], xp, evoReady, rT }
+    this.squads = new Map();
     this.nextId = 1;
     this.players = players.map((p, i) => ({
       id: i, name: p.name || `Player ${i + 1}`, b: 250, c: 50, pop: 0, cap: 0,
@@ -105,6 +108,47 @@ export class World {
     return u;
   }
 
+  // A squad of `size` members of `type`, spawned around (x, y).
+  addSquad(type, owner, x, y, id) {
+    const sq = { id: id || this.nextId++, owner, type, form: type, size: squadSize(type), members: [], xp: 0, evoReady: false, rT: 0, warned: false };
+    this.squads.set(sq.id, sq);
+    for (let i = 0; i < sq.size; i++) {
+      const p = this.squadSpot(x, y, i, type);
+      this.addMember(sq, p.x, p.y);
+    }
+    return sq;
+  }
+
+  addMember(sq, x, y) {
+    const u = this.addUnit(sq.type, sq.owner, x, y);
+    u.sq = sq.id;
+    u.xp = sq.xp;
+    if (sq.form !== u.form) {
+      u.form = sq.form;
+      u.maxHp = u.hp = this.stats(u).maxHp;
+      u.radius = UNITS[u.type].radius + FORMS[u.form].stage * 1.5;
+    }
+    sq.members.push(u.id);
+    return u;
+  }
+
+  // a free spot near (x, y) for the i-th member of a squad
+  squadSpot(x, y, i, type) {
+    if (!i) return { x, y };
+    const a = i * 2.4, r = 9 + i * 2;
+    let px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+    if (!UNITS[type].flying && this.blockedAt(px, py)) {
+      const f = this.nearestFree(Math.floor(x / TILE), Math.floor(y / TILE), 4);
+      if (f) { px = f.x * TILE + TILE / 2 + (i % 2 ? 3 : -3); py = f.y * TILE + TILE / 2; }
+      else { px = x; py = y; }
+    }
+    return { x: px, y: py };
+  }
+
+  squadOf(u) { return u && u.sq ? this.squads.get(u.sq) : null; }
+  squadUnits(sq) { return sq.members.map((id) => this.ents.get(id)).filter(Boolean); }
+  leaderOf(sq) { return this.ents.get(sq.members[0]); }
+
   addBuilding(type, owner, tx, ty, built, id) {
     const def = BUILDINGS[type];
     const maxHp = Math.round(def.hp * (this.rlevel(owner, 'fortify') ? 1.5 : 1));
@@ -142,6 +186,13 @@ export class World {
 
   remove(e) {
     this.ents.delete(e.id);
+    if (e.sq) {
+      const sq = this.squads.get(e.sq);
+      if (sq) {
+        sq.members = sq.members.filter((id) => id !== e.id);
+        if (!sq.members.length) this.squads.delete(sq.id);
+      }
+    }
     if (e.kind !== 'unit') { this.markOcc(e, 0); this.version++; }
   }
 
@@ -214,9 +265,10 @@ export class World {
     let n = 0;
     for (const e of this.ents.values()) {
       if (e.owner !== pid) continue;
-      if (e.kind === 'unit' && e.type === type) n++;
+      if (e.kind === 'unit' && e.type === type && !e.sq) n++;
       if (e.kind === 'building') n += e.queue.filter((q) => q.u === type).length;
     }
+    for (const sq of this.squads.values()) if (sq.owner === pid && sq.type === type) n++;
     return n;
   }
 
@@ -273,13 +325,18 @@ export class World {
       if (e.owner < 0 || e.owner === undefined) continue;
       const p = this.players[e.owner];
       if (!p) continue;
-      if (e.kind === 'unit') p.pop += UNITS[e.type].pop;
+      // a squad always holds supply for its full size, so refilling it never goes over the cap
+      if (e.kind === 'unit') { if (!e.sq) p.pop += UNITS[e.type].pop; }
       else if (e.kind === 'building') {
         let pop = BUILDINGS[e.type].pop || 0;
-        if (e.type === 'mart' && p.research.martplus) pop = 15;
+        if (e.type === 'mart' && p.research.martplus) pop = 20;
         if (e.built) p.cap += pop;
-        for (const q of e.queue) if (q.u) p.pop += UNITS[q.u].pop;
+        for (const q of e.queue) if (q.u) p.pop += squadPop(q.u);
       }
+    }
+    for (const sq of this.squads.values()) {
+      const p = this.players[sq.owner];
+      if (p) p.pop += squadPop(sq.type);
     }
     for (const p of this.players) p.cap = Math.min(MAX_POP, p.cap);
   }
@@ -345,7 +402,7 @@ export class World {
         if (def.limit && this.unitCount(pid, cmd.type) >= def.limit) return this.notify(pid, `Only ${def.limit} ${def.name} allowed`, 'warn');
         if (!this.canAfford(pid, def.cost)) return this.notify(pid, 'Not enough resources', 'warn');
         const p = this.players[pid];
-        if (p.pop + def.pop > p.cap) return this.notify(pid, 'Need more supply — build a Poké Mart', 'warn');
+        if (p.pop + squadPop(cmd.type) > p.cap) return this.notify(pid, 'Need more supply — build a Poké Mart', 'warn');
         this.pay(pid, def.cost);
         b.queue.push({ u: cmd.type, t: 0 });
         this.recount();
@@ -387,10 +444,11 @@ export class World {
       }
       case 'evolve': {
         const u = own([cmd.id])[0];
-        if (!u || !u.evoReady) return;
+        const sq = this.squadOf(u);
+        if (!u || !(sq ? sq.evoReady : u.evoReady)) return;
         const opt = (FORMS[u.form].next || []).find((n) => n.to === cmd.to);
         if (!opt || !this.rlevel(pid, opt.r)) return;
-        this.evolve(u, cmd.to);
+        if (sq) this.evolveSquad(sq, cmd.to); else this.evolve(u, cmd.to);
         break;
       }
       case 'cast': {
@@ -424,31 +482,59 @@ export class World {
     this.clearPath(u);
   }
 
+  // Slots around (x, y): squads keep their members together in a small cluster.
   formation(units, x, y) {
     const n = units.length;
     if (!n) return [];
+    const groups = new Map();
+    units.forEach((u, i) => {
+      const k = u.sq ? 's' + u.sq : 'u' + u.id;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(i);
+    });
+    const list = [...groups.values()];
     const r = units.reduce((s, u) => s + u.radius, 0) / n;
     const sp = r * 2 + 3;
+    const big = Math.max(...list.map((g) => g.length));
+    const gsp = Math.ceil(Math.sqrt(big)) * sp + 4;
+    const centers = this.grid(list.length, x, y, gsp);
+    const cxy = (g) => ({ x: g.reduce((s, i) => s + units[i].x, 0) / g.length, y: g.reduce((s, i) => s + units[i].y, 0) / g.length });
+    const out = new Array(n);
+    const gAt = this.assign(list.map(cxy), centers);
+    list.forEach((g, gi) => {
+      const c = centers[gAt[gi]];
+      const slots = this.grid(g.length, c.x, c.y, sp);
+      const at = this.assign(g.map((i) => units[i]), slots);
+      g.forEach((i, k) => { out[i] = slots[at[k]]; });
+    });
+    return out;
+  }
+
+  grid(n, x, y, sp) {
     const side = Math.ceil(Math.sqrt(n));
     const slots = [];
     for (let i = 0; i < n; i++) {
       const gx = (i % side) - (side - 1) / 2, gy = Math.floor(i / side) - (Math.ceil(n / side) - 1) / 2;
       slots.push({ x: x + gx * sp, y: y + gy * sp });
     }
-    // greedy assignment: each unit takes nearest free slot
-    const out = new Array(n);
-    const used = new Array(n).fill(false);
-    const order = units.map((u, i) => i).sort((a, b) =>
-      Math.hypot(units[b].x - x, units[b].y - y) - Math.hypot(units[a].x - x, units[a].y - y));
+    return slots;
+  }
+
+  // greedy: the farthest point picks its nearest free slot first
+  assign(pts, slots) {
+    const n = pts.length;
+    const mx = slots.reduce((s, p) => s + p.x, 0) / n, my = slots.reduce((s, p) => s + p.y, 0) / n;
+    const out = new Array(n), used = new Array(n).fill(false);
+    const order = pts.map((p, i) => i).sort((a, b) => Math.hypot(pts[b].x - mx, pts[b].y - my) - Math.hypot(pts[a].x - mx, pts[a].y - my));
     for (const i of order) {
       let best = -1, bd = Infinity;
-      for (let s = 0; s < n; s++) {
-        if (used[s]) continue;
-        const d = Math.hypot(slots[s].x - units[i].x, slots[s].y - units[i].y);
-        if (d < bd) { bd = d; best = s; }
+      for (let k = 0; k < n; k++) {
+        if (used[k]) continue;
+        const d = Math.hypot(slots[k].x - pts[i].x, slots[k].y - pts[i].y);
+        if (d < bd) { bd = d; best = k; }
       }
       used[best] = true;
-      out[i] = slots[best];
+      out[i] = best;
     }
     return out;
   }
@@ -563,6 +649,7 @@ export class World {
       if (e.kind === 'unit') this.updateUnit(e, dt);
       else if (e.kind === 'building') this.updateBuilding(e, dt);
     }
+    this.updateSquads(dt);
     this.updateProjectiles(dt);
     this.updateEffects(dt);
     this.separate();
@@ -693,6 +780,9 @@ export class World {
         if (Math.hypot(o.x - u.x, o.y - u.y) <= ab.range * TILE) {
           this.performAbility(u, o.key, o.x, o.y);
           u.acd = ab.cd;
+          // the whole squad shares one cooldown
+          const sq = this.squadOf(u);
+          if (sq) for (const m of this.squadUnits(sq)) m.acd = ab.cd;
           u.anim = 0.4;
           u.order = o.prev && o.prev.type !== 'cast' ? o.prev : { type: 'idle' };
           this.clearPath(u);
@@ -945,8 +1035,16 @@ export class World {
     const src = this.ents.get(srcId);
     if (src && src.kind === 'unit') {
       src.lastCombat = this.time;
-      src.xp += dmg;
-      this.tryEvolve(src);
+      const sq = this.squadOf(src);
+      if (sq) {
+        // squads share XP: the average damage per member
+        sq.xp += dmg / sq.size;
+        for (const m of this.squadUnits(sq)) m.xp = sq.xp;
+        this.tryEvolveSquad(sq);
+      } else {
+        src.xp += dmg;
+        this.tryEvolve(src);
+      }
     }
     const p = this.players[t.owner];
     if (p && this.time - p.lastAlert > 15 && !(src && this.isVisible(t.owner, src) && this.nearOwnArmy(t))) {
@@ -1006,7 +1104,70 @@ export class World {
     this.evolve(u, ready[0].to);
   }
 
-  evolve(u, to) {
+  tryEvolveSquad(sq) {
+    const lead = this.leaderOf(sq);
+    if (!lead) return;
+    const f = FORMS[sq.form];
+    if (!f.next || sq.evoReady || sq.xp < EVO_XP[f.stage + 1]) return;
+    const p = this.players[sq.owner];
+    const ready = f.next.filter((n) => p.research[n.r]);
+    if (!ready.length) {
+      const r = f.next[0].r;
+      if (!p.hinted[r]) {
+        p.hinted[r] = 1;
+        this.notify(sq.owner, `${f.name} is ready to evolve! Research ${RESEARCH[r].name} at the Lab.`, 'evo', lead.x, lead.y);
+      }
+      return;
+    }
+    if (f.next[0].choice) {
+      if (p.ai) this.evolveSquad(sq, ready[Math.floor(Math.random() * ready.length)].to);
+      else {
+        sq.evoReady = true;
+        for (const m of this.squadUnits(sq)) m.evoReady = true;
+        this.notify(sq.owner, `${f.name} squad can evolve! Select it and choose an evolution.`, 'evo', lead.x, lead.y);
+      }
+      return;
+    }
+    this.evolveSquad(sq, ready[0].to);
+  }
+
+  evolveSquad(sq, to) {
+    const before = FORMS[sq.form].name;
+    sq.form = to;
+    sq.evoReady = false;
+    const ms = this.squadUnits(sq);
+    for (const m of ms) this.evolve(m, to, true);
+    const lead = ms[0];
+    if (lead) this.notify(sq.owner, `${before} squad evolved into ${FORMS[to].name}!`, 'evo', lead.x, lead.y);
+    this.tryEvolveSquad(sq);
+  }
+
+  // Refill squads that lost members once they've been out of combat for a moment.
+  updateSquads(dt) {
+    for (const sq of [...this.squads.values()]) {
+      if (sq.members.length >= sq.size) { sq.rT = 0; sq.warned = false; continue; }
+      const ms = this.squadUnits(sq);
+      const lead = ms[0];
+      if (!lead || lead.ascend || ms.some((m) => this.time - (m.lastCombat ?? -99) < REINFORCE_DELAY)) { sq.rT = 0; continue; }
+      sq.rT += dt;
+      if (sq.rT < REINFORCE_TIME) continue;
+      const cost = reinforceCost(sq.type);
+      if (!this.canAfford(sq.owner, cost)) {
+        if (!sq.warned) { sq.warned = true; this.notify(sq.owner, `Not enough resources to reinforce ${FORMS[sq.form].name}`, 'warn', lead.x, lead.y); }
+        continue;
+      }
+      this.pay(sq.owner, cost);
+      sq.rT = 0;
+      const p = this.squadSpot(lead.x, lead.y, sq.members.length, sq.type);
+      const u = this.addMember(sq, p.x, p.y);
+      u.face = lead.face;
+      u.evoReady = sq.evoReady;
+      if (['move', 'attack', 'idle'].includes(lead.order.type)) u.order = { ...lead.order };
+      this.fx.push({ k: 'reinforce', x: u.x | 0, y: u.y | 0 });
+    }
+  }
+
+  evolve(u, to, quiet) {
     const before = FORMS[u.form].name;
     const ratio = u.hp / u.maxHp;
     u.form = to;
@@ -1017,6 +1178,7 @@ export class World {
     u.radius = UNITS[u.type].radius + FORMS[to].stage * 1.5;
     this.clearPath(u);
     this.fx.push({ k: 'evo', x: u.x | 0, y: u.y | 0, id: u.id });
+    if (quiet) return;
     this.notify(u.owner, `${before} evolved into ${FORMS[to].name}!`, 'evo', u.x, u.y);
     this.tryEvolve(u);
   }
@@ -1040,7 +1202,8 @@ export class World {
     }
     if (key === 'martplus') this.recount();
     // Pokémon that already have the XP evolve right away
-    for (const u of this.unitsOf(pid)) this.tryEvolve(u);
+    for (const u of this.unitsOf(pid)) if (!u.sq) this.tryEvolve(u);
+    for (const sq of [...this.squads.values()]) if (sq.owner === pid) this.tryEvolveSquad(sq);
   }
 
   spawnSpot(b, n = 0) {
@@ -1091,15 +1254,23 @@ export class World {
       if (q.t >= ud.time * (p.research.drill ? 0.75 : 1)) {
         b.queue.shift();
         const s = this.spawnSpot(b, Math.floor(Math.random() * 6));
-        const u = this.addUnit(q.u, b.owner, s.x, s.y);
         p.stats.trained++;
-        if (b.rally) {
-          const rt = b.rally.target && this.ents.get(b.rally.target);
-          if (ud.worker && rt && rt.kind === 'res') this.setGather(u, rt);
-          else u.order = { type: 'move', x: b.rally.x, y: b.rally.y, attack: !ud.worker };
-        } else if (ud.worker) {
-          const r = this.nearestResource(u, 'berry', 14);
-          if (r) this.setGather(u, r);
+        if (ud.worker) {
+          const u = this.addUnit(q.u, b.owner, s.x, s.y);
+          const rt = b.rally && b.rally.target && this.ents.get(b.rally.target);
+          if (rt && rt.kind === 'res') this.setGather(u, rt);
+          else if (b.rally) u.order = { type: 'move', x: b.rally.x, y: b.rally.y, attack: false };
+          else {
+            const r = this.nearestResource(u, 'berry', 14);
+            if (r) this.setGather(u, r);
+          }
+        } else {
+          const sq = this.addSquad(q.u, b.owner, s.x, s.y);
+          const ms = this.squadUnits(sq);
+          if (b.rally) {
+            const slots = this.formation(ms, b.rally.x, b.rally.y);
+            ms.forEach((u, i) => { u.order = { type: 'move', x: slots[i].x, y: slots[i].y, attack: true }; });
+          }
         }
       }
     } else if (q.r) {
@@ -1181,7 +1352,7 @@ export class World {
           (x.sleep > 0 ? 256 : 0) | (x.evoReady ? 512 : 0) | (x.order.type === 'cast' ? 1024 : 0) |
           (x.ascend ? (x.ascend.phase === 'up' ? 2048 : 4096) : 0);
         e.push([0, x.id, UNIT_KEYS.indexOf(x.type), x.owner, r1(x.x), r1(x.y), Math.ceil(x.hp), x.maxHp,
-          FORM_KEYS.indexOf(x.form), Math.floor(x.xp), flags, x.face, x.acd > 0 ? r1(x.acd) : 0, x.lift ? Math.round(x.lift) : 0]);
+          FORM_KEYS.indexOf(x.form), Math.floor(x.xp), flags, x.face, x.acd > 0 ? r1(x.acd) : 0, x.lift ? Math.round(x.lift) : 0, x.sq || 0]);
       } else if (x.kind === 'building') {
         e.push([1, x.id, BUILDING_KEYS.indexOf(x.type), x.owner, x.tx, x.ty, Math.ceil(x.hp), x.maxHp,
           x.built ? 1 : Math.round(x.progress * 1000) / 1000,
@@ -1195,6 +1366,7 @@ export class World {
       p: this.players.map((p) => [Math.floor(p.b), Math.floor(p.c), p.pop, p.cap, p.research,
         p.alive ? 1 : 0, p.stats.trained, p.stats.killed, p.stats.lost, p.stats.gathered]),
       e,
+      q: [...this.squads.values()].map((q) => [q.id, q.owner, UNIT_KEYS.indexOf(q.type), FORM_KEYS.indexOf(q.form), Math.floor(q.xp), q.evoReady ? 1 : 0, r1(q.rT)]),
     };
   }
 
@@ -1230,6 +1402,7 @@ export class World {
         x.acd = a[12];
         x.lift = a[13] || 0;
         x.ascend = f & 2048 ? { phase: 'up' } : f & 4096 ? { phase: 'down' } : null;
+        x.sq = a[14] || 0;
       } else if (a[0] === 1) {
         if (!x) { x = this.addBuilding(BUILDING_KEYS[a[2]], a[3], a[4], a[5], a[8] === 1, id); structural = true; }
         x.hp = a[6]; x.maxHp = a[7];
@@ -1242,6 +1415,15 @@ export class World {
       }
     }
     for (const e of [...this.ents.values()]) if (!seen.has(e.id)) { this.remove(e); structural = true; }
+    this.squads = new Map();
+    for (const a of s.q || []) {
+      const type = UNIT_KEYS[a[2]];
+      this.squads.set(a[0], { id: a[0], owner: a[1], type, form: FORM_KEYS[a[3]], size: squadSize(type), members: [], xp: a[4], evoReady: !!a[5], rT: a[6] });
+    }
+    for (const e of this.ents.values()) {
+      const sq = e.kind === 'unit' && e.sq && this.squads.get(e.sq);
+      if (sq) sq.members.push(e.id);
+    }
     if (structural) this.version++;
     this.updateFog(viewPid);
   }

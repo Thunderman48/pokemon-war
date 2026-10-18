@@ -1,6 +1,6 @@
 // Scripted checks for V2 features: node tests/features.mjs
 import { World, isFlying } from '../js/world.js';
-import { FORMS, TILE, EVO_XP, BUILDINGS, RESEARCH } from '../js/config.js';
+import { FORMS, TILE, EVO_XP, BUILDINGS, RESEARCH, UNITS, squadSize, squadPop, reinforceCost, REINFORCE_DELAY, REINFORCE_TIME } from '../js/config.js';
 
 let fails = 0;
 const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'} ${msg}`); if (!cond) fails++; };
@@ -53,7 +53,7 @@ ok(ee.form === 'vaporeon', 'Eevee -> Vaporeon');
 
 // flying over water/trees: send a Pidgey across the map in a straight line
 w.issue(0, { c: 'train', id: pillar.id, type: 'pidgey' });
-run(w, 17);
+run(w, UNITS.pidgey.time + 1);
 const pg = w.unitsOf(0).find((u) => u.type === 'pidgey');
 ok(!!pg, 'Pidgey trained at the Sky Pillar');
 w.issue(0, { c: 'move', ids: [pg.id], x: 60 * TILE, y: 4 * TILE, attack: false });
@@ -106,7 +106,7 @@ P.research.move_heal = 1;
 pika.hp = 10; bulb.hp = 10;
 w.issue(0, { c: 'cast', ids: [wart.id], key: 'heal', x: 20 * TILE, y: 31 * TILE });
 run(w, 0.2);
-ok(pika.hp > 50 && bulb.hp > 50, 'Heal Pulse healed nearby allies');
+ok(pika.hp > 40 && bulb.hp > 40, 'Heal Pulse healed nearby allies');
 
 // snapshot round trip keeps forms, research and flags
 const g = new World({ seed: 99, players: [{}, {}], sim: false });
@@ -160,6 +160,62 @@ w.update(0.05);
 while (rq.ascend && guard++ < 100) w.update(0.05);
 ok(rq.hp > hpBefore + 50, `Dragon Ascent drained life (${Math.round(hpBefore)} -> ${Math.round(rq.hp)})`);
 void drainT;
+
+// squads: trained together, share supply, XP and evolution, and refill fallen members
+{
+  const w3 = new World({ seed: 7, players: [{}, {}] });
+  const Q = w3.players[0];
+  Q.b = Q.c = 99999; Q.noFog = true; Q.gatherMult = 0;
+  const c0 = w3.buildingsOf(0)[0];
+  const gy = w3.addBuilding('gym', 0, c0.tx + 5, c0.ty, true);
+  for (let i = 0; i < 4; i++) w3.addBuilding('mart', 0, c0.tx + i * 3, c0.ty + 6, true);
+  w3.recount();
+  const pop0 = Q.pop;
+  w3.issue(0, { c: 'train', id: gy.id, type: 'charmander' });
+  ok(Q.pop === pop0 + squadPop('charmander'), `a queued squad reserves supply for all members (${Q.pop - pop0})`);
+  run(w3, UNITS.charmander.time + 1);
+  const sq = [...w3.squads.values()].find((q) => q.type === 'charmander');
+  const ms = sq ? w3.squadUnits(sq) : [];
+  ok(sq && ms.length === squadSize('charmander') && ms.every((m) => m.sq === sq.id), `trained a Charmander squad of ${ms.length}`);
+  ok(Q.pop === pop0 + squadPop('charmander'), 'the trained squad still holds its full supply');
+  // moving keeps the squad together
+  w3.issue(0, { c: 'move', ids: ms.map((m) => m.id), x: 30 * TILE, y: 30 * TILE });
+  run(w3, 25);
+  const spread = Math.max(...ms.map((m) => Math.hypot(m.x - ms[0].x, m.y - ms[0].y)));
+  ok(spread < 40, `squad stays together on the move (spread ${Math.round(spread)}px)`);
+  // shared XP: one member's damage counts for the squad
+  const dummy = w3.addUnit('snorlax', 1, ms[0].x + 30, ms[0].y);
+  w3.buildHash();
+  w3.damage(dummy, 40, ms[0].id, 0);
+  ok(Math.abs(sq.xp - 40 / sq.size) < 0.01 && ms.every((m) => Math.abs(m.xp - sq.xp) < 0.01), `squad shares XP (${sq.xp})`);
+  w3.remove(dummy);
+  // the whole squad evolves together
+  Q.research.evo_charmeleon = 1;
+  sq.xp = EVO_XP[1]; w3.tryEvolveSquad(sq);
+  ok(ms.every((m) => m.form === 'charmeleon') && sq.form === 'charmeleon', 'the whole squad evolved into Charmeleon');
+  // lose a member: it comes back out of combat, for a small price, already evolved
+  const fallen = ms[3];
+  w3.damage(fallen, 9999, dummy.id, 1);
+  ok(sq.members.length === 3 && Q.pop === pop0 + squadPop('charmander'), 'a fallen member keeps its supply reserved');
+  const b0 = Q.b, cost = reinforceCost('charmander');
+  run(w3, REINFORCE_DELAY - 1);
+  ok(sq.members.length === 3, 'no reinforcement right after combat');
+  run(w3, REINFORCE_TIME + 2);
+  const back = w3.squadUnits(sq);
+  ok(back.length === 4 && back[3].form === 'charmeleon' && back[3].sq === sq.id, 'a fallen member was reinforced, already evolved');
+  ok(Q.b === b0 - cost.b, `reinforcing cost ${cost.b} berries`);
+  // a wiped-out squad is gone and frees its supply
+  for (const m of back) w3.damage(m, 9999, 0, 1);
+  w3.recount();
+  ok(!w3.squads.has(sq.id) && Q.pop === pop0, 'a destroyed squad frees its supply');
+  // snapshot keeps squads for the guest
+  w3.issue(0, { c: 'train', id: gy.id, type: 'squirtle' });
+  run(w3, UNITS.squirtle.time + 1);
+  const g3 = new World({ seed: 7, players: [{}, {}], sim: false });
+  g3.applySnapshot(JSON.parse(JSON.stringify(w3.snapshot())), 0);
+  const gq = [...g3.squads.values()].find((q) => q.type === 'squirtle');
+  ok(gq && gq.members.length === 4 && g3.ents.get(gq.members[0]).sq === gq.id, 'snapshot carries squads to the guest');
+}
 
 // destroying the last Pokémon Center ends the game, even if other buildings remain
 const w2 = new World({ seed: 5, players: [{}, {}] });
