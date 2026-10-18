@@ -1,6 +1,8 @@
 // Game controller: main loop, touch/mouse input, selection, HUD panel, networking glue.
-import { TICK, TILE, UNITS, FORMS, BUILDINGS, RESEARCH, SKILLS, EVO_XP, TYPE_COLORS, researchCost, researchTime, squadSize, squadPop, skillResearch, researchLines } from './config.js';
+import { TICK, TILE, UNITS, FORMS, BUILDINGS, RESEARCH, SKILLS, EVO_XP, TYPE_COLORS, researchCost, researchTime, squadSize, squadPop, skillResearch, researchLines, ITEMS, MEGA } from './config.js';
 import { World, isFlying } from './world.js';
+import { megaBlock } from './mega.js';
+import { megaTimeLeft } from './megafx.js';
 import { AI } from './ai.js';
 import { Renderer } from './render.js';
 import { sfx, unlockAudio } from './audio.js';
@@ -212,6 +214,9 @@ export class Game {
       else if (f.k === 'sk_hit') { sfx(f.s === 'thunder' ? 'zap' : 'boom'); if (f.s === 'thunder' || f.s === 'rockslide') r.shake(performance.now(), 2.5); }
       else if (f.k === 'beam' || f.k === 'cone') sfx('beam');
       else if (f.k === 'trail') sfx('whoosh');
+      else if (f.k === 'megaevo') sfx('megaevo');
+      else if (f.k === 'megaburst') { sfx('boom'); sfx('evolve'); r.shake(performance.now(), 6); }
+      else if (f.k === 'stormbolt') { sfx('zap'); r.shake(performance.now(), 2); }
     }
   }
 
@@ -716,12 +721,16 @@ export class Game {
       const abil = [...new Set(units.filter((x) => x.sq).flatMap((x) => W.activeSkills(x)))];
       const sqs = [...new Set(units.map((x) => x.sq).filter(Boolean))].map((id) => W.squads.get(id)).filter(Boolean);
       const autoOn = sqs.length && sqs.every((q) => q.auto);
+      // squads whose leader can Mega Evolve (or is Mega right now)
+      const megaSqs = sqs.filter((q) => { const l = W.ents.get(q.members[0]); return l && (FORMS[l.form].mega || FORMS[l.form].isMega); });
+      const megaWhy = megaSqs.length ? megaBlock(W, megaSqs[0]) : null;
+      const megaLocked = megaWhy && /Key Stone|Mega Stone/.test(megaWhy);
       const groups = this.groups(units);
       const one = groups.length === 1;
       const sq = one ? W.squadOf(u) : null;
       const evoChoices = one && u.evoReady ? (FORMS[u.form].next || []).filter((n) => P.research[n.r]) : [];
       sig = `U|${units.map((x) => x.id + ':' + x.form).join(',')}|${this.buildMenu}|${this.forceMove}|${this.casting}|${this.page}|` +
-        `${abil.map((k) => k + P.research[skillResearch(k)]).join(',')}|${autoOn}|${evoChoices.map((n) => n.to).join(',')}|` +
+        `${abil.map((k) => k + P.research[skillResearch(k)]).join(',')}|${autoOn}|${megaSqs.length}${megaLocked}|${evoChoices.map((n) => n.to).join(',')}|` +
         `${workers && this.buildMenu ? Object.keys(BUILDINGS).map((k) => +afford(BUILDINGS[k].cost) + '' + +W.reqMet(pid, BUILDINGS[k].req)).join('') : ''}|` +
         `${one ? JSON.stringify(P.research) : ''}|${groups.length}`;
       if (sig === this.panelSig) return this.updateDynamic(ents);
@@ -762,6 +771,13 @@ export class Game {
           const S = SKILLS[k];
           const known = P.research[skillResearch(k)];
           items.push(`<button class="cmd${known ? '' : ' locked off'}${this.casting === k ? ' active' : ''}" data-a="cast" data-v="${k}"><img src="assets/icons/${k}.png" alt="">${this.lbl(S.name.toUpperCase())}<span class="cost" data-bind="cd-${k}"></span></button>`);
+        }
+        if (megaSqs.length) {
+          const l = W.ents.get(megaSqs[0].members[0]);
+          const line = FORMS[l.form].line;
+          const slot = P.deck.slots.find((x) => x.line === line);
+          const icon = line === 'rayquaza' || !slot || !slot.item ? 'keystone' : slot.item;
+          items.push(`<button class="cmd mega${megaLocked ? ' locked off' : ''}" data-a="mega"><img src="assets/icons/${icon}.png" alt=""><span class="lbl">MEGA</span><span class="cost" data-bind="cd-mega"></span></button>`);
         }
         if (abil.length) items.push(`<button class="cmd auto${autoOn ? ' active' : ''}" data-a="auto"><span class="lbl">AUTO<br>${autoOn ? 'ON' : 'OFF'}</span></button>`);
         items.push('<button class="cmd" data-a="stop"><span class="lbl">STOP</span></button>');
@@ -857,7 +873,10 @@ export class Game {
     const W = this.world, P = W.players[this.pid];
     const ks = W.loadout(u.owner, FORMS[u.form].line);
     if (!ks.length) return '';
-    return `<div class="skrow">${ks.map((k) => `<span class="sk${P.research[skillResearch(k)] ? '' : ' off'}${SKILLS[k].kind === 'p' ? ' pas' : ''}" title="${SKILLS[k].name}"><img src="assets/icons/${k}.png" alt="">${SKILLS[k].name}</span>`).join('')}</div>`;
+    const slot = W.players[u.owner].deck.slots.find((x) => x.line === FORMS[u.form].line);
+    const item = slot && slot.item && ITEMS[slot.item];
+    return `<div class="skrow">${ks.map((k) => `<span class="sk${P.research[skillResearch(k)] ? '' : ' off'}${SKILLS[k].kind === 'p' ? ' pas' : ''}" title="${SKILLS[k].name}"><img src="assets/icons/${k}.png" alt="">${SKILLS[k].name}</span>`).join('')}` +
+      `${item ? `<span class="sk item" title="${item.desc}"><img src="assets/icons/${slot.item}.png" alt="">${item.name}</span>` : ''}</div>`;
   }
 
   updateDynamic(ents) {
@@ -890,6 +909,18 @@ export class Game {
       const cmds = $('cmds');
       for (const el of cmds.querySelectorAll('[data-bind^="cd-"]')) {
         const k = el.dataset.bind.slice(3);
+        if (k === 'mega') {
+          let txt = '';
+          for (const sid of this.selSquads) {
+            const q = W.squads.get(sid);
+            if (!q) continue;
+            const on = megaTimeLeft(q);
+            txt = on > 0 ? `ON ${Math.ceil(on)}s` : q.megaCd > 0 ? `${Math.ceil(q.megaCd)}s` : 'READY';
+            if (txt === 'READY' || on > 0) break;
+          }
+          if (el.textContent !== txt) el.textContent = txt;
+          continue;
+        }
         let best = Infinity;
         for (const sid of this.selSquads) {
           const q = W.squads.get(sid), lead = q && W.ents.get(q.members[0]);
@@ -1001,6 +1032,14 @@ export class Game {
         this.issue({ c: 'auto', ids: units.map((u) => u.id), on });
         for (const q of sqs) q.auto = on; // show it right away (the host confirms)
         this.toast(on ? 'Skills are used automatically' : 'Auto skills off: tap a skill to use it');
+        break;
+      }
+      case 'mega': {
+        const sqs = [...this.selSquads].map((id) => W.squads.get(id)).filter(Boolean);
+        const ok = sqs.filter((q) => !megaBlock(W, q));
+        if (!ok.length) { fail(sqs.length ? megaBlock(W, sqs[0]) : 'Nothing can Mega Evolve'); break; }
+        this.issue({ c: 'mega', ids: ok.flatMap((q) => q.members) });
+        sfx('evolve');
         break;
       }
       case 'labcat': this.labCat = v; this.page = 0; break;

@@ -2,6 +2,7 @@
 import { TILE, UNITS, FORMS, BUILDINGS, TEAM_COLORS, researchTime } from './config.js';
 import { isFlying } from './world.js';
 import { drawSkillFx, skillFxLife, drawStatus } from './skillfx.js';
+import { drawMegaFx, megaFxLife, megaSymbol, drawMegaAura, drawSky } from './megafx.js';
 import { T } from './map.js';
 
 const MINI_COLORS = {
@@ -243,6 +244,8 @@ export class Renderer {
         this.flag(b.rally.x, b.rally.y, TEAM_COLORS[pid]);
       }
     }
+    // Mega Rayquaza's storm darkens the whole sky
+    ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); drawSky(this, now); ctx.restore();
     if (ui.ghost) this.drawGhost(ui.ghost);
     if (ui.target) {
       const t = ui.target, pulse = 0.6 + Math.sin(now / 120) * 0.2;
@@ -297,6 +300,8 @@ export class Renderer {
     if (!img) return;
     const fastA = this.A.fast[e.form];
     if (fastA && e.ascend) { this.drawAscending(e, now, fastA); return; }
+    const isMega = e.mega && e.mega.phase === 'on';
+    if (isMega) drawMegaAura(this, e, x, y, y - lift - 20, now);
     // which sheet: fast flight while moving, idle hover otherwise (open jaw while attacking)
     const attacking = e.anim > 0 || e.order.type === 'cast';
     const anim = this.A.anim[e.form];
@@ -329,6 +334,14 @@ export class Renderer {
     const blit = () => ctx.drawImage(src.img, src.sx, src.sy, src.sw, src.sh, dx, dy, w, h);
     blit();
     ctx.globalAlpha = 1;
+    if (e.mega && e.mega.phase === 'transform') {
+      // glowing white silhouette while Mega Evolving
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.6 + 0.4 * Math.sin(now / 60);
+      blit(); blit();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
     const ft = this.evoFlash.get(e.id);
     if (ft !== undefined) {
       const t = (now - ft) / 1400;
@@ -361,6 +374,7 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
     drawStatus(this, e, x, dy, dy + h * 0.6, now);
+    if (isMega) megaSymbol(ctx, x + w * 0.25, dy - 2, 0.8);
     if (e.evoReady && e.owner === this.pid) {
       ctx.fillStyle = Math.floor(now / 250) % 2 ? '#fff36b' : '#ffffff';
       ctx.fillRect(Math.round(x - 1), Math.round(dy - 9), 2, 5);
@@ -458,7 +472,7 @@ export class Renderer {
       const life = f.k === 'p' ? f.d : f.k === 'evo' ? 1.4 : f.k === 'die' ? (f.b ? 0.9 : 0.5) : f.k === 'heal' ? 0.7 :
         f.k === 'zap' ? 0.5 : f.k === 'bolt' ? 0.6 : f.k === 'healp' ? 0.8 : f.k === 'sleep' ? 1.2 : f.k === 'boom' ? 1.0 :
         f.k === 'ascent' ? 1.0 : f.k === 'mark' || f.k === 'dive' || f.k === 'drain' ? f.d : f.k === 'quake' ? 1.5 :
-        f.k === 'drained' ? 1.3 : f.k === 'reinforce' ? 0.7 : skillFxLife(f) || 0.3;
+        f.k === 'drained' ? 1.3 : f.k === 'reinforce' ? 0.7 : skillFxLife(f) || megaFxLife(f) || 0.3;
       if (age > life) { this.fx.splice(i, 1); continue; }
       const t = age / life;
       const fxX = f.k === 'p' ? f.x2 : f.k === 'drain' || f.k === 'beam' ? f.x1 : f.x, fxY = f.k === 'p' ? f.y2 : f.k === 'drain' || f.k === 'beam' ? f.y1 : f.y;
@@ -575,12 +589,22 @@ export class Renderer {
         ctx.beginPath(); ctx.ellipse(f.x, f.y, 20 + t * 14, (20 + t * 14) * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
       } else if (skillFxLife(f)) {
         drawSkillFx(this, f, t, now);
+      } else if (megaFxLife(f)) {
+        drawMegaFx(this, f, t, now);
       }
     }
   }
 
   projectile(kind, x, y, f, t, now) {
     const ctx = this.ctx;
+    if (kind === 'cannon') {
+      // Mega Blastoise's water cannon shell, arcing high
+      const yy = y - Math.sin(t * Math.PI) * 28;
+      ctx.fillStyle = 'rgba(80,140,255,0.5)'; ctx.beginPath(); ctx.arc(x, yy, 5, 0, 7); ctx.fill();
+      ctx.fillStyle = '#cfe8ff'; ctx.beginPath(); ctx.arc(x, yy, 3, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(x - 1, yy - 2, 2, 2);
+      return;
+    }
     if (kind === 'ember') {
       ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, 7); ctx.fill();
       ctx.fillStyle = '#ffe14d'; ctx.beginPath(); ctx.arc(x, y, 1.2, 0, 7); ctx.fill();

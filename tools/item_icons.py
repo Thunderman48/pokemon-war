@@ -1,0 +1,143 @@
+"""Pixel-art held-item icons (and the Key Stone). Uses make_assets' palette and outline."""
+
+# letters are make_assets.PAL colours; a few extra ones are added in EXTRA
+EXTRA = {
+    "1": (255, 77, 109), "2": (255, 159, 67), "3": (255, 225, 77), "4": (94, 224, 94), "5": (77, 195, 255), "6": (143, 107, 255),
+    "7": (120, 70, 40), "8": (230, 230, 240), "9": (120, 100, 200),
+}
+
+
+def stone(core, dark, swirl="w"):
+    """A Mega Stone: a round gem with a DNA swirl inside."""
+    c, d, s = core, dark, swirl
+    return [
+        f"...{d}{d}{d}{d}...",
+        f"..{d}{c}{c}{c}{c}{d}..",
+        f".{d}{c}{s}{c}{c}{c}{c}{d}.",
+        f"{d}{c}{c}{c}{s}{c}{c}{c}{c}{d}",
+        f"{d}{c}{c}{c}{c}{s}{s}{c}{c}{d}",
+        f"{d}{c}{c}{s}{s}{c}{c}{c}{c}{d}",
+        f"{d}{c}{c}{c}{c}{s}{c}{c}{c}{d}",
+        f".{d}{c}{c}{c}{c}{s}{c}{d}.",
+        f"..{d}{c}{c}{c}{c}{d}..",
+        f"...{d}{d}{d}{d}...",
+    ]
+
+
+ITEMS = {
+    "charizardite": stone("o", "O", "y"),
+    "blastoisinite": stone("b", "B", "w"),
+    "venusaurite": stone("g", "G", "y"),
+    "pidgeotite": stone("C", "N", "w"),
+    "keystone": [
+        "...xxxx...",
+        "..x1122x..",
+        ".x112233x.",
+        "x11wwww33x",
+        "x66w..w44x",
+        "x66w..w44x",
+        "x665wwww4x",
+        ".x655544x.",
+        "..x5544x..",
+        "...xxxx...",
+    ],
+    "leftovers": [
+        "....7.....",
+        "....77....",
+        "..RRRrRR..",
+        ".RRRrrRRR.",
+        ".RRaaaaRR.",
+        ".RaaAaaaR.",
+        ".RRaaaaRR.",
+        "..RRRRRR..",
+        "...RRRR...",
+    ],
+    "choiceband": [
+        "..........",
+        ".wwwwwwww.",
+        "wxxxxxxxxw",
+        "wwwwwwwwww",
+        ".........w",
+        "........ww",
+        ".......ww.",
+        ".......w..",
+    ],
+    "quickclaw": [
+        ".......Y..",
+        "......YY..",
+        ".....YYw..",
+        "....YYw...",
+        "...YYw....",
+        "..YYYw.Y..",
+        ".YYYY.YY..",
+        "..YYYYYw..",
+        "...YYYw...",
+    ],
+    "rockyhelmet": [
+        "..h..h..h.",
+        "..hh.hh.hh",
+        ".hhhhhhhh.",
+        "hhxxhhhhhh",
+        "hxxhhhhhhh",
+        "hhhhhhhhhh",
+        "HHHHHHHHHH",
+        "H.......H.",
+    ],
+    "eviolite": [
+        "....99....",
+        "...9PP9...",
+        "..9PPiP9..",
+        ".9PPPiPP9.",
+        ".9PPPPPP9.",
+        "..9PPPP9..",
+        "...9PP9...",
+        "....99....",
+    ],
+    "expertbelt": [
+        "..........",
+        "kkkkkkkkkk",
+        "kRRkyykRRk",
+        "kRRyRRyRRk",
+        "kRRkyykRRk",
+        "kkkkkkkkkk",
+    ],
+    "focussash": [
+        "..........",
+        "RRRRRRRRR.",
+        "rrrrrrrrrR",
+        "RRRRRRRRR.",
+        "......rR..",
+        ".....rR...",
+        "....rR....",
+    ],
+    "scopelens": [
+        "..kkkk....",
+        ".k5555k...",
+        "k55w555k..",
+        "k5w5555k..",
+        "k555555k..",
+        ".k5555k...",
+        "..kkkkkk..",
+        ".......kk.",
+        "........kk",
+    ],
+    "shellbell": [
+        "....yy....",
+        "...yYYy...",
+        "..yYyyYy..",
+        "..yyYyyy..",
+        ".yyyyyyyy.",
+        ".YYYYYYYY.",
+        "....YY....",
+    ],
+    "amuletcoin": [
+        "...yyyy...",
+        "..yYYYYy..",
+        ".yYyyyyYy.",
+        ".yYyYYyYy.",
+        ".yYyYYyYy.",
+        ".yYyyyyYy.",
+        "..yYYYYy..",
+        "...yyyy...",
+    ],
+}

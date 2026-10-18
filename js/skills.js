@@ -1,9 +1,9 @@
 // Skill engine: passive modifiers, status effects, active skills and auto-casting.
 // Functions take the World as their first argument so world.js stays readable.
-import { SKILLS, FORMS, UNITS, TILE, ASCENT, effectiveness, skillResearch } from './config.js';
+import { SKILLS, FORMS, UNITS, TILE, ASCENT, ITEMS, effectiveness, skillResearch } from './config.js';
 
-const MULT = ['dmg', 'hp', 'cd', 'speed', 'armor', 'rangedArmor', 'solid', 'regen', 'siege', 'gather', 'carry', 'build', 'pinch'];
-const ADD = ['range', 'sight', 'dodge', 'cregen', 'pickup'];
+const MULT = ['dmg', 'hp', 'cd', 'speed', 'armor', 'rangedArmor', 'solid', 'regen', 'siege', 'gather', 'carry', 'build', 'pinch', 'eviolite', 'expert', 'firedmg'];
+const ADD = ['range', 'sight', 'dodge', 'cregen', 'pickup', 'thorns', 'lifesteal'];
 
 // Combine several mod objects into one.
 export function mergeMods(list) {
@@ -18,20 +18,24 @@ export function mergeMods(list) {
     }
     for (const k of ['contact', 'onhit', 'aura']) if (m[k]) (out[k] = out[k] || []).push(m[k]);
     if (m.immune) out.immune = 1;
+    if (m.noguard) out.noguard = 1;
     if (m.stamina) out.stamina = Math.max(out.stamina || 0, m.stamina);
     if (m.sturdy) out.sturdy = Math.min(out.sturdy || Infinity, m.sturdy);
   }
   return out;
 }
 
-// Passive mods a player has for one Pokémon line (from its deck loadout + finished research).
+// Passive mods a player has for one Pokémon line (deck loadout + finished research + held item).
 export function lineMods(W, pid, line) {
   const p = W.players[pid];
   if (!p) return {};
   const key = researchKey(p);
   if (p._modsKey !== key) { p._modsKey = key; p._mods = {}; }
   if (!p._mods[line]) {
-    p._mods[line] = mergeMods(W.loadout(pid, line).filter((k) => SKILLS[k].kind === 'p' && p.research[skillResearch(k)]).map((k) => SKILLS[k].mods));
+    const list = W.loadout(pid, line).filter((k) => SKILLS[k].kind === 'p' && p.research[skillResearch(k)]).map((k) => SKILLS[k].mods);
+    const slot = p.deck.slots.find((s) => s.line === line);
+    if (slot && slot.item && ITEMS[slot.item] && ITEMS[slot.item].mods) list.push(ITEMS[slot.item].mods);
+    p._mods[line] = mergeMods(list);
   }
   return p._mods[line];
 }
@@ -45,13 +49,14 @@ function researchKey(p) {
 export function unitMods(W, u) {
   if (u.kind !== 'unit') return {};
   const base = lineMods(W, u.owner, FORMS[u.form].line);
-  if (!u.buffs || !u.buffs.length) return base;
-  return mergeMods([base, ...u.buffs.map((b) => b.mods)]);
+  const fm = FORMS[u.form].mods; // e.g. Mega Pidgeot's No Guard
+  if ((!u.buffs || !u.buffs.length) && !fm) return base;
+  return mergeMods([base, fm, ...(u.buffs || []).map((b) => b.mods)]);
 }
 
 // ------------------------------------------------------------------ status effects
 export function applyStatus(W, t, st, src, owner, power = 1) {
-  if (!t || t.kind !== 'unit' || !W.ents.has(t.id)) return;
+  if (!t || t.kind !== 'unit' || !W.ents.has(t.id) || (t.mega && t.mega.phase === 'transform')) return;
   const m = unitMods(W, t);
   if (m.immune) return;
   const legend = UNITS[t.type].limit ? 0.5 : 1; // legendaries shrug off control effects faster
@@ -214,7 +219,9 @@ function hitArea(W, key, x, y, r, owner, src, power, opts = {}) {
 function hitUnit(W, t, key, src, owner, power, mult = 1) {
   const S = SKILLS[key], e = S.eff;
   let dealt = 0;
-  if (e.dmg) dealt = W.damage(t, e.dmg * power * mult * effectiveness(S.type, FORMS[t.form].type), src, owner, { skill: true, type: S.type });
+  const caster = W.ents.get(src);
+  const boost = caster && caster.kind === 'unit' && S.type === 'fire' ? unitMods(W, caster).firedmg || 1 : 1;
+  if (e.dmg) dealt = W.damage(t, e.dmg * power * mult * boost * effectiveness(S.type, FORMS[t.form].type), src, owner, { skill: true, type: S.type });
   if (!W.ents.has(t.id)) return dealt;
   const st = {};
   if (e.burn) st.burn = e.burn;
@@ -227,6 +234,7 @@ function hitUnit(W, t, key, src, owner, power, mult = 1) {
 }
 
 function knock(W, t, x, y, amt) {
+  if (t.mega && t.mega.phase === 'transform') return;
   const d = Math.hypot(t.x - x, t.y - y) || 1;
   const ux = (t.x - x) / d, uy = (t.y - y) / d;
   const legend = UNITS[t.type].limit ? 0.3 : 1;

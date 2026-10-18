@@ -1,6 +1,6 @@
 // Authoritative game simulation. DOM-free so it can run headless (tests) or on the host.
 import {
-  TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ASCENT, EVO_XP, EVO_MULT, SKILLS, DEFAULT_SKILLS, skillResearch,
+  TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ASCENT, EVO_XP, EVO_MULT, SKILLS, DEFAULT_SKILLS, DEFAULT_ITEMS, skillResearch,
   UNIT_KEYS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, effectiveness, researchCost, researchTime, REGEN_DELAY, REGEN_RATE,
   REINFORCE_DELAY, REINFORCE_TIME, squadSize, squadPop, reinforceCost,
 } from './config.js';
@@ -9,6 +9,7 @@ import { Pathfinder } from './path.js';
 import {
   unitMods, applyStatus, updateStatus, performSkill, updateDash, updateCharge, resolveArea, updateZones, autoTarget, addBuff,
 } from './skills.js';
+import { megaBlock, startMega, updateMega, resolveCannon } from './mega.js';
 
 const CELL = 32;
 const circleCache = new Map();
@@ -46,7 +47,7 @@ export function unitStats(u, research, mods) {
 }
 
 export function defaultDeck() {
-  return { slots: Object.entries(DEFAULT_SKILLS).map(([line, skills]) => ({ line, skills: [...skills], item: null })) };
+  return { slots: Object.entries(DEFAULT_SKILLS).map(([line, skills]) => ({ line, skills: [...skills], item: DEFAULT_ITEMS[line] || null })) };
 }
 
 export class World {
@@ -80,6 +81,7 @@ export class World {
     this.projectiles = [];
     this.effects = [];
     this.zones = [];
+    this.sky = 0; // > 0 while Mega Rayquaza's storm darkens the sky
     this.pathBudget = 0;
     this.version = 0; // bumps when buildings/resources change (renderer cache)
     if (sim) this.setup();
@@ -122,11 +124,12 @@ export class World {
   }
 
   // A squad of `size` members of `type`, spawned around (x, y).
-  addSquad(type, owner, x, y, id) {
+  // spots: optional list of positions for the members (e.g. free tiles around the building that trained them)
+  addSquad(type, owner, x, y, id, spots) {
     const sq = { id: id || this.nextId++, owner, type, form: type, size: squadSize(type), members: [], xp: 0, evoReady: false, rT: 0, warned: false, cds: {}, auto: true, scan: Math.random() };
     this.squads.set(sq.id, sq);
     for (let i = 0; i < sq.size; i++) {
-      const p = this.squadSpot(x, y, i, type);
+      const p = (spots && spots[i]) || this.squadSpot(x, y, i, type);
       this.addMember(sq, p.x, p.y);
     }
     return sq;
@@ -497,6 +500,18 @@ export class World {
         this.startCast(cands[0], cmd.key, cmd.x, cmd.y);
         break;
       }
+      case 'mega': {
+        const seen = new Set();
+        for (const u of own(cmd.ids)) {
+          const sq = this.squadOf(u);
+          if (!sq || seen.has(sq.id)) continue;
+          seen.add(sq.id);
+          const why = megaBlock(this, sq);
+          if (why) { if (seen.size === 1 || cmd.loud) this.notify(pid, why, 'warn'); continue; }
+          startMega(this, sq);
+        }
+        break;
+      }
       case 'auto': {
         const seen = new Set();
         for (const u of own(cmd.ids)) {
@@ -692,6 +707,7 @@ export class World {
     this.tick++;
     this.time += dt;
     this.pathBudget = 40;
+    this.sky = 0;
     for (const e of this.ents.values()) { e.px = e.x; e.py = e.y; }
     this.buildHash();
     for (const e of [...this.ents.values()]) {
@@ -757,6 +773,7 @@ export class World {
     if (u.repathT > 0) u.repathT -= dt;
     u.scanT -= dt;
     u.moving = false;
+    if (u.mega && updateMega(this, u, dt)) return;
     if (updateStatus(this, u, dt) || !this.ents.has(u.id)) return;
     if (u.sleep > 0) { u.sleep -= dt; return; }
     if (u.ascend) { this.updateAscent(u, dt); return; }
@@ -954,6 +971,8 @@ export class World {
     const am = isB ? {} : this.mods(u);
     if (t.kind === 'building' && def.siege) dmg *= def.siege;
     if (t.kind === 'building' && am.siege) dmg *= am.siege;
+    if (am.expert && eff > 1) dmg *= am.expert;
+    if (am.firedmg && atkType === 'fire') dmg *= am.firedmg;
     const proj = isB ? def.proj : st.proj;
     if (proj) {
       const d = Math.hypot(t.x - u.x, t.y - u.y);
@@ -964,11 +983,12 @@ export class World {
       // long Pokémon (Rayquaza) breathe from their mouth, not their middle
       const mouth = !isB && FORMS[u.form].mouth;
       const x1 = mouth ? u.x + mouth[0] * u.face : u.x, y1 = mouth ? u.y + mouth[1] : u.y - lift;
-      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y, proj, eff, onhit: am.onhit });
+      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y, proj, eff, onhit: am.onhit, steal: am.lifesteal, noguard: am.noguard });
       this.fx.push({ k: 'p', x1: x1 | 0, y1: y1 | 0, x2: t.x | 0, y2: (t.y - (isFlying(t) ? 12 : 4)) | 0, d: dur, s: proj });
     } else {
       this.fx.push({ k: 'hit', x: ((u.x + t.x) / 2) | 0, y: ((u.y + t.y) / 2 - 4) | 0 });
-      this.damage(t, dmg, u.id, u.owner, { contact: true, type: atkType, eff });
+      const got = this.damage(t, dmg, u.id, u.owner, { contact: true, type: atkType, eff, noguard: am.noguard });
+      if (am.lifesteal && got > 0) u.hp = Math.min(u.maxHp, u.hp + got * am.lifesteal);
       if (am.onhit) this.onHit(am.onhit, t, u);
       // Flame Body / Static: touching them hurts
       if (t.kind === 'unit' && this.ents.has(t.id) && !isB) {
@@ -1001,7 +1021,9 @@ export class World {
           this.damage(e, e === t ? p.dmg : dmg * 0.7, p.src, p.owner, { ranged: true, type: p.atkType, eff: ef });
         });
       } else if (t && t.owner !== p.owner) {
-        this.damage(t, p.dmg, p.src, p.owner, { ranged: true, type: p.atkType, eff: p.eff });
+        const got = this.damage(t, p.dmg, p.src, p.owner, { ranged: true, type: p.atkType, eff: p.eff, noguard: p.noguard });
+        const s = p.steal && got > 0 && this.ents.get(p.src);
+        if (s) s.hp = Math.min(s.maxHp, s.hp + got * p.steal);
         if (p.onhit && this.ents.has(t.id)) this.onHit(p.onhit, t, { id: p.src, owner: p.owner });
       }
     }
@@ -1063,15 +1085,22 @@ export class World {
       if (e.t > 0) continue;
       this.effects.splice(i, 1);
       if (e.k === 'skill') resolveArea(this, e);
+      else if (e.k === 'cannon') resolveCannon(this, e);
     }
   }
 
   // info: { ranged, contact, type, eff, skill, dot } describes the hit for passives like Delta Stream or Thick Fat
   damage(t, dmg, srcId, srcOwner, info = {}) {
     if (t.kind === 'unit') {
+      if (t.mega && t.mega.phase === 'transform') return 0; // invincible while Mega Evolving
       dmg *= 1 - 0.12 * this.rlevel(t.owner, 'defense');
       const m = this.mods(t);
-      if (m.dodge && !info.skill && !info.dot && Math.random() < m.dodge) {
+      if (m.eviolite && FORMS[t.form].next) dmg *= m.eviolite;
+      if (m.thorns && info.contact && !info.thorns) {
+        const s = this.ents.get(srcId);
+        if (s && s.kind === 'unit') this.damage(s, dmg * m.thorns, t.id, t.owner, { thorns: true });
+      }
+      if (m.dodge && !info.skill && !info.dot && !info.noguard && Math.random() < m.dodge) {
         this.fx.push({ k: 'miss', x: t.x | 0, y: (t.y - 10) | 0 });
         return 0;
       }
@@ -1198,7 +1227,10 @@ export class World {
     sq.form = to;
     sq.evoReady = false;
     const ms = this.squadUnits(sq);
-    for (const m of ms) this.evolve(m, to, true);
+    for (const m of ms) {
+      if (m.mega) { m.mega.prev = to; continue; } // a Mega leader returns to the new form later
+      this.evolve(m, to, true);
+    }
     const lead = ms[0];
     if (lead) this.notify(sq.owner, `${before} squad evolved into ${FORMS[to].name}!`, 'evo', lead.x, lead.y);
     this.tryEvolveSquad(sq);
@@ -1208,6 +1240,7 @@ export class World {
   updateSquads(dt) {
     for (const sq of [...this.squads.values()]) {
       for (const k in sq.cds) if ((sq.cds[k] -= dt) <= 0) delete sq.cds[k];
+      if (sq.megaCd > 0) sq.megaCd -= dt;
       if ((sq.scan -= dt) <= 0) { sq.scan = 0.5; this.squadSkills(sq); }
       if (sq.members.length >= sq.size) { sq.rT = 0; sq.warned = false; continue; }
       const ms = this.squadUnits(sq);
@@ -1308,9 +1341,30 @@ export class World {
     for (let x = b.tx - 1; x <= b.tx + b.w; x++) spots.push([x, b.ty + b.h]);
     for (let y = b.ty + b.h - 1; y >= b.ty - 1; y--) spots.push([b.tx + b.w, y], [b.tx - 1, y]);
     for (let x = b.tx; x < b.tx + b.w; x++) spots.push([x, b.ty - 1]);
-    const free = spots.filter(([x, y]) => !this.blockedTile(x, y));
+    // skip pockets walled in by buildings or terrain (units spawned there could never leave)
+    let free = spots.filter(([x, y]) => !this.blockedTile(x, y) && this.openArea(x, y));
+    if (!free.length) free = spots.filter(([x, y]) => !this.blockedTile(x, y));
     const [x, y] = free.length ? free[n % free.length] : [b.tx, b.ty + b.h];
     return { x: x * TILE + TILE / 2, y: y * TILE + TILE / 2 };
+  }
+
+  // Is this free tile part of an open area (not a small enclosed pocket)? Cached until buildings change.
+  openArea(tx, ty, need = 40) {
+    if (this._openV !== this.version) { this._openV = this.version; this._open = new Map(); }
+    const key = ty * this.w + tx;
+    if (this._open.has(key)) return this._open.get(key);
+    const seen = new Set([key]), q = [key];
+    while (q.length && seen.size < need) {
+      const i = q.shift(), x = i % this.w, y = (i / this.w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy, ni = ny * this.w + nx;
+        if (seen.has(ni) || this.blockedTile(nx, ny)) continue;
+        seen.add(ni); q.push(ni);
+      }
+    }
+    const ok = seen.size >= need;
+    this._open.set(key, ok);
+    return ok;
   }
 
   updateBuilding(b, dt) {
@@ -1361,7 +1415,9 @@ export class World {
             if (r) this.setGather(u, r);
           }
         } else {
-          const sq = this.addSquad(q.u, b.owner, s.x, s.y);
+          const k = Math.floor(Math.random() * 6);
+          const spots = Array.from({ length: squadSize(q.u) }, (_, i) => this.spawnSpot(b, k + i));
+          const sq = this.addSquad(q.u, b.owner, s.x, s.y, 0, spots);
           const ms = this.squadUnits(sq);
           if (b.rally) {
             const slots = this.formation(ms, b.rally.x, b.rally.y);
@@ -1448,7 +1504,8 @@ export class World {
           (x.sleep > 0 ? 256 : 0) | (x.evoReady ? 512 : 0) | (x.order.type === 'cast' ? 1024 : 0) |
           (x.ascend ? (x.ascend.phase === 'up' ? 2048 : 4096) : 0) | (x.burn ? 8192 : 0) | (x.poison ? 16384 : 0) |
           (x.stun > 0 ? 32768 : 0) | (x.slow ? 65536 : 0) | (x.buffs && x.buffs.some((b) => b.key !== 'aura') ? 131072 : 0) |
-          (x.charge ? 262144 : 0) | (x.dash ? 524288 : 0) | (x.buffs && x.buffs.some((b) => b.key === 'protect') ? 1048576 : 0);
+          (x.charge ? 262144 : 0) | (x.dash ? 524288 : 0) | (x.buffs && x.buffs.some((b) => b.key === 'protect') ? 1048576 : 0) |
+          (x.mega ? (x.mega.phase === 'transform' ? 2097152 : 4194304) : 0);
         e.push([0, x.id, UNIT_KEYS.indexOf(x.type), x.owner, r1(x.x), r1(x.y), Math.ceil(x.hp), x.maxHp,
           FORM_KEYS.indexOf(x.form), Math.floor(x.xp), flags, x.face, 0, x.lift ? Math.round(x.lift) : 0, x.sq || 0]);
       } else if (x.kind === 'building') {
@@ -1465,13 +1522,14 @@ export class World {
         p.alive ? 1 : 0, p.stats.trained, p.stats.killed, p.stats.lost, p.stats.gathered]),
       e,
       q: [...this.squads.values()].map((q) => [q.id, q.owner, UNIT_KEYS.indexOf(q.type), FORM_KEYS.indexOf(q.form), Math.floor(q.xp), q.evoReady ? 1 : 0, r1(q.rT),
-        q.auto ? 1 : 0, Object.fromEntries(Object.entries(q.cds).map(([k, v]) => [k, r1(v)]))]),
+        q.auto ? 1 : 0, Object.fromEntries(Object.entries(q.cds).map(([k, v]) => [k, r1(v)])), q.megaCd > 0 ? r1(q.megaCd) : 0]),
+      sky: r1(this.sky),
       d: this.tick % 20 === 0 ? this.players.map((p) => p.deck) : undefined,
     };
   }
 
   applySnapshot(s, viewPid) {
-    this.tick = s.tick; this.time = s.time; this.winner = s.winner;
+    this.tick = s.tick; this.time = s.time; this.winner = s.winner; this.sky = s.sky || 0;
     if (s.d) s.d.forEach((d, i) => { const p = this.players[i]; if (d && JSON.stringify(d) !== JSON.stringify(p.deck)) { p.deck = d; p.deckKey = JSON.stringify(d); } });
     s.p.forEach((a, i) => {
       const p = this.players[i];
@@ -1502,6 +1560,7 @@ export class World {
         x.face = a[11];
         x.burn = f & 8192 ? {} : null; x.poison = f & 16384 ? {} : null; x.stun = f & 32768 ? 1 : 0; x.slow = f & 65536 ? { m: 1 } : null;
         x.buffed = !!(f & 131072); x.charge = f & 262144 ? {} : null; x.dash = f & 524288 ? {} : null; x.protect = !!(f & 1048576);
+        x.mega = f & 2097152 ? { phase: 'transform' } : f & 4194304 ? { phase: 'on' } : null;
         x.lift = a[13] || 0;
         x.ascend = f & 2048 ? { phase: 'up' } : f & 4096 ? { phase: 'down' } : null;
         x.sq = a[14] || 0;
@@ -1520,7 +1579,7 @@ export class World {
     this.squads = new Map();
     for (const a of s.q || []) {
       const type = UNIT_KEYS[a[2]];
-      this.squads.set(a[0], { id: a[0], owner: a[1], type, form: FORM_KEYS[a[3]], size: squadSize(type), members: [], xp: a[4], evoReady: !!a[5], rT: a[6], auto: !!a[7], cds: a[8] || {} });
+      this.squads.set(a[0], { id: a[0], owner: a[1], type, form: FORM_KEYS[a[3]], size: squadSize(type), members: [], xp: a[4], evoReady: !!a[5], rT: a[6], auto: !!a[7], cds: a[8] || {}, megaCd: a[9] || 0 });
     }
     for (const e of this.ents.values()) {
       const sq = e.kind === 'unit' && e.sq && this.squads.get(e.sq);

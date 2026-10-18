@@ -1,6 +1,6 @@
 // Scripted checks for V2 features: node tests/features.mjs
 import { World, isFlying } from '../js/world.js';
-import { FORMS, TILE, EVO_XP, BUILDINGS, RESEARCH, UNITS, squadSize, squadPop, reinforceCost, REINFORCE_DELAY, REINFORCE_TIME } from '../js/config.js';
+import { MEGA, FORMS, TILE, EVO_XP, BUILDINGS, RESEARCH, UNITS, squadSize, squadPop, reinforceCost, REINFORCE_DELAY, REINFORCE_TIME } from '../js/config.js';
 
 let fails = 0;
 const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'} ${msg}`); if (!cond) fails++; };
@@ -72,10 +72,21 @@ ok(pillar.queue.filter((q) => q.u === 'rayquaza').length === 1, 'only one Rayqua
 run(w, 61);
 const ray = w.unitsOf(0).find((u) => u.type === 'rayquaza');
 ok(!!ray && isFlying(ray), 'Rayquaza trained and flies');
-w.issue(0, { c: 'research', id: lab.id, key: 'megastone' });
-run(w, 61);
-ray.xp = EVO_XP[1]; w.tryEvolve(ray);
-ok(ray.form === 'megarayquaza', `Rayquaza -> Mega Rayquaza (${ray.form}, hp ${ray.maxHp})`);
+const raySq = w.squadOf(ray);
+w.issue(0, { c: 'mega', ids: [ray.id] });
+ok(!ray.mega, 'no Mega Evolution without the Key Stone');
+w.issue(0, { c: 'research', id: lab.id, key: 'keystone' });
+run(w, RESEARCH.keystone.time + 1);
+w.issue(0, { c: 'mega', ids: [ray.id] });
+ok(ray.mega && ray.mega.phase === 'transform', 'Rayquaza starts Mega Evolving (no stone needed)');
+const rhp = ray.hp;
+w.damage(ray, 500, 0, 1);
+ok(ray.hp === rhp, 'invincible while transforming');
+run(w, MEGA.transform + 0.1);
+ok(ray.form === 'megarayquaza' && ray.mega.phase === 'on', `Rayquaza -> Mega Rayquaza (${ray.form}, hp ${Math.round(ray.maxHp)})`);
+run(w, 0.2);
+ok(w.sky > 0, 'the sky darkens while Mega Rayquaza is out');
+ok(raySq.megaCd > MEGA.time, 'Mega Evolution is on cooldown');
 
 // splash damage: Mega Rayquaza vs a clump of enemies
 const clump = [0, 1, 2, 3].map((i) => w.addUnit('squirtle', 1, 40 * TILE + (i % 2) * 12, 40 * TILE + (i >> 1) * 12));
@@ -111,7 +122,7 @@ ok(hurtM.filter((m) => m.hp > 40).length >= 5, 'Heal Pulse healed nearby allies'
 const g = new World({ seed: 99, players: [{}, {}], sim: false });
 g.applySnapshot(JSON.parse(JSON.stringify(w.snapshot())), 1);
 const gr = g.ents.get(ray.id);
-ok(gr && gr.form === 'megarayquaza' && g.players[0].research.megastone === 1, 'snapshot keeps forms and research');
+ok(gr && gr.form === 'megarayquaza' && g.players[0].research.keystone === 1 && gr.mega && g.sky > 0, 'snapshot keeps forms, research, Mega state and the dark sky');
 
 // Dragon Ascent: Rayquaza flies up (untargetable), dives onto the target, damages and knocks back
 const rsq = w.addSquad('rayquaza', 0, 10 * TILE, 40 * TILE); rsq.auto = false;
@@ -140,7 +151,7 @@ ok(Object.keys(RESEARCH).every((k) => BUILDINGS.lab.research.includes(k)) &&
 ok(BUILDINGS.gym.trains.includes('snorlax') && !BUILDINGS.lab.trains, 'Snorlax is trained at the Gym');
 
 // passive regeneration out of combat (share of max HP)
-const reg = w.addUnit('snorlax', 0, 4 * TILE, 60 * TILE);
+const reg = w.addUnit('squirtle', 0, 4 * TILE, 60 * TILE);
 reg.hp = reg.maxHp * 0.5; reg.lastCombat = w.time;
 run(w, 3);
 ok(reg.hp === reg.maxHp * 0.5, 'no regeneration right after combat');
@@ -322,6 +333,50 @@ function applyStatusTest(w, u) {
   w.issue(0, { c: 'cast', ids: q.members, key: 'sleeppowder', x: u.x, y: u.y });
   run(w, 0.3);
   ok(!(u.sleep > 0), 'Immunity blocks Sleep Powder');
+}
+
+// Mega Evolution needs the stone; Megas wear off; items work
+{
+  const w5 = new World({ seed: 21, players: [{}, {}] });
+  const A = w5.players[0];
+  A.noFog = true; A.research.keystone = 1; A.research.evo_charmeleon = 1; A.research.evo_charizard = 1;
+  const q = w5.addSquad('charmander', 0, 30 * TILE, 30 * TILE); q.auto = false;
+  w5.issue(0, { c: 'mega', ids: q.members });
+  ok(!w5.leaderOf(q).mega, 'Charmander must be fully evolved to Mega Evolve');
+  q.xp = EVO_XP[2]; w5.tryEvolveSquad(q);
+  ok(w5.leaderOf(q).form === 'charizard', 'squad evolved to Charizard');
+  A.deck.slots.find((s) => s.line === 'charmander').item = 'choiceband'; A.deckKey = 'x1';
+  w5.issue(0, { c: 'mega', ids: q.members });
+  ok(!w5.leaderOf(q).mega, 'no Mega Evolution without Charizardite');
+  A.deck.slots.find((s) => s.line === 'charmander').item = 'charizardite'; A.deckKey = 'x2';
+  w5.issue(0, { c: 'mega', ids: q.members });
+  const lead = w5.leaderOf(q);
+  ok(lead.mega && w5.squadUnits(q).filter((m) => m.mega).length === 1, 'only the squad leader Mega Evolves');
+  const foes = [0, 1, 2].map((i) => w5.addUnit('bulbasaur', 1, lead.x + 30 + i * 8, lead.y + 10));
+  w5.buildHash();
+  const fx0 = foes.map((f) => f.x);
+  run(w5, MEGA.transform + 0.1);
+  ok(lead.form === 'megacharizard', 'Charizard -> Mega Charizard Y');
+  ok(foes.some((f, i) => !w5.ents.has(f.id) || f.x > fx0[i] + 5), 'the Mega entrance blast knocked enemies back');
+  run(w5, 2.5);
+  ok(foes.some((f) => !w5.ents.has(f.id) || f.burn), 'harsh sunlight burns enemies nearby');
+  run(w5, MEGA.time);
+  ok(lead.form === 'charizard' && !lead.mega, 'Mega Evolution wears off after its time');
+  w5.issue(0, { c: 'mega', ids: q.members });
+  ok(!lead.mega && q.megaCd > 0, 'and has to recharge');
+  // items
+  A.deck.slots.find((s) => s.line === 'charmander').item = 'choiceband'; A.deckKey = 'x3';
+  ok(Math.abs(w5.stats(lead).dmg / w5.stats({ ...lead, owner: 1 }).dmg - 1.25) < 0.01, 'Choice Band: +25% damage');
+  const ev = w5.addSquad('eevee', 0, 10 * TILE, 50 * TILE);
+  const em = w5.leaderOf(ev);
+  let h = em.hp; w5.damage(em, 20, 0, 1);
+  ok(Math.abs((h - em.hp) - 14) < 0.01, 'Eviolite: unevolved Eevee takes 30% less');
+  A.deck.slots.find((s) => s.line === 'geodude').item = 'rockyhelmet'; A.deckKey = 'x4';
+  const gd = w5.leaderOf(w5.addSquad('geodude', 0, 50 * TILE, 50 * TILE));
+  const brute = w5.addUnit('snorlax', 1, gd.x + 12, gd.y);
+  const bh = brute.hp;
+  w5.damage(gd, 30, brute.id, 1, { contact: true });
+  ok(brute.hp < bh, 'Rocky Helmet hurts close-range attackers');
 }
 
 // destroying the last Pokémon Center ends the game, even if other buildings remain

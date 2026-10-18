@@ -110,13 +110,16 @@ export const FORMS = {
   machop: { line: 'machop', name: 'Machop', type: 'fighting', stage: 0 },
   charmander: { line: 'charmander', name: 'Charmander', type: 'fire', stage: 0, next: [{ to: 'charmeleon', r: 'evo_charmeleon' }] },
   charmeleon: { line: 'charmander', name: 'Charmeleon', type: 'fire', stage: 1, next: [{ to: 'charizard', r: 'evo_charizard' }] },
-  charizard: { line: 'charmander', name: 'Charizard', type: 'fire', stage: 2, flying: true },
+  charizard: { line: 'charmander', name: 'Charizard', type: 'fire', stage: 2, flying: true, mega: 'megacharizard' },
+  megacharizard: { line: 'charmander', name: 'Mega Charizard Y', type: 'fire', stage: 3, flying: true, isMega: true, mult: { hp: 3.0, dmg: 3.0, range: 1.5 } },
   squirtle: { line: 'squirtle', name: 'Squirtle', type: 'water', stage: 0, next: [{ to: 'wartortle', r: 'evo_wartortle' }] },
   wartortle: { line: 'squirtle', name: 'Wartortle', type: 'water', stage: 1, next: [{ to: 'blastoise', r: 'evo_blastoise' }] },
-  blastoise: { line: 'squirtle', name: 'Blastoise', type: 'water', stage: 2 },
+  blastoise: { line: 'squirtle', name: 'Blastoise', type: 'water', stage: 2, mega: 'megablastoise' },
+  megablastoise: { line: 'squirtle', name: 'Mega Blastoise', type: 'water', stage: 3, isMega: true, mult: { hp: 3.2, dmg: 2.6, range: 2 } },
   bulbasaur: { line: 'bulbasaur', name: 'Bulbasaur', type: 'grass', stage: 0, next: [{ to: 'ivysaur', r: 'evo_ivysaur' }] },
   ivysaur: { line: 'bulbasaur', name: 'Ivysaur', type: 'grass', stage: 1, next: [{ to: 'venusaur', r: 'evo_venusaur' }] },
-  venusaur: { line: 'bulbasaur', name: 'Venusaur', type: 'grass', stage: 2 },
+  venusaur: { line: 'bulbasaur', name: 'Venusaur', type: 'grass', stage: 2, mega: 'megavenusaur' },
+  megavenusaur: { line: 'bulbasaur', name: 'Mega Venusaur', type: 'grass', stage: 3, isMega: true, mult: { hp: 3.4, dmg: 2.5, range: 1.5 } },
   geodude: { line: 'geodude', name: 'Geodude', type: 'rock', stage: 0, next: [{ to: 'graveler', r: 'evo_graveler' }] },
   graveler: { line: 'geodude', name: 'Graveler', type: 'rock', stage: 1, next: [{ to: 'golem', r: 'evo_golem' }] },
   golem: { line: 'geodude', name: 'Golem', type: 'rock', stage: 2 },
@@ -132,9 +135,10 @@ export const FORMS = {
   snorlax: { line: 'snorlax', name: 'Snorlax', type: 'normal', stage: 0 },
   pidgey: { line: 'pidgey', name: 'Pidgey', type: 'flying', stage: 0, next: [{ to: 'pidgeotto', r: 'evo_pidgeotto' }] },
   pidgeotto: { line: 'pidgey', name: 'Pidgeotto', type: 'flying', stage: 1, next: [{ to: 'pidgeot', r: 'evo_pidgeot' }] },
-  pidgeot: { line: 'pidgey', name: 'Pidgeot', type: 'flying', stage: 2 },
-  rayquaza: { line: 'rayquaza', name: 'Rayquaza', type: 'dragon', stage: 0, mouth: [66, -42], anim: 8, fast: 8, next: [{ to: 'megarayquaza', r: 'megastone' }] },
-  megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, mouth: [71, -48], anim: 8, fast: 8, proj: 'megabreath', mult: { hp: 1.8, dmg: 1.6, range: 1.5, speed: 1.2 } },
+  pidgeot: { line: 'pidgey', name: 'Pidgeot', type: 'flying', stage: 2, mega: 'megapidgeot' },
+  megapidgeot: { line: 'pidgey', name: 'Mega Pidgeot', type: 'flying', stage: 3, isMega: true, mult: { hp: 2.8, dmg: 2.8, range: 1.5, speed: 1.15 }, mods: { noguard: 1 } },
+  rayquaza: { line: 'rayquaza', name: 'Rayquaza', type: 'dragon', stage: 0, mouth: [66, -42], anim: 8, fast: 8, mega: 'megarayquaza' },
+  megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, isMega: true, mouth: [71, -48], anim: 8, fast: 8, proj: 'megabreath', mult: { hp: 1.8, dmg: 1.6, range: 1.5, speed: 1.2 } },
 };
 
 export const BUILDINGS = {
@@ -189,7 +193,7 @@ export const RESEARCH = {
   thunderstone: { lines: ['pikachu', 'eevee'], name: 'Thunder Stone', icon: 'i:thunderstone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Pikachu → Raichu and Eevee → Jolteon.' },
   waterstone: { lines: ['eevee'], name: 'Water Stone', icon: 'i:waterstone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Eevee → Vaporeon.' },
   firestone: { lines: ['eevee'], name: 'Fire Stone', icon: 'i:firestone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Eevee → Flareon.' },
-  megastone: { line: 'rayquaza', name: 'Mega Stone', icon: 'i:megastone', cost: { b: 400, c: 400 }, time: 60, group: 'evo', reqB: 'skypillar', desc: 'Rayquaza → Mega Rayquaza.' },
+  keystone: { name: 'Key Stone', icon: 'i:keystone', cost: { b: 250, c: 250 }, time: 50, reqB: 'skypillar', desc: 'Unlocks Mega Evolution: a Pokémon holding its Mega Stone (Rayquaza needs none) can Mega Evolve with the MEGA button.' },
   harvest: { name: 'Harvest', levels: 2, cost: { b: 100, c: 50 }, time: 35, desc: 'Workers gather 20% faster per level.' },
   bigbag: { name: 'Big Bag', cost: { b: 150, c: 50 }, time: 40, desc: 'Workers carry 50% more per trip.' },
   martplus: { name: 'Mart Expansion', cost: { b: 125, c: 50 }, time: 35, desc: 'Each Poké Mart gives +20 supply instead of +15.' },
@@ -205,6 +209,31 @@ export function researchCost(key, level) {
 export function researchTime(key, level) {
   return RESEARCH[key].time * (1 + 0.25 * level);
 }
+
+// Mega Evolution: the squad leader transforms (invincible) for `transform` s, stays Mega for `time` s,
+// then the squad waits `cd` s before it can Mega Evolve again. Needs the Key Stone research and the
+// Pokémon's Mega Stone as its held item (Rayquaza needs no stone).
+export const MEGA = { transform: 2, time: 60, cd: 150 };
+
+// Held items: one per deck slot, used by every Pokémon from that slot.
+export const ITEMS = {
+  charizardite: { name: 'Charizardite', mega: 'charmander', color: '#f08030', desc: 'Lets Charizard Mega Evolve into Mega Charizard Y.' },
+  blastoisinite: { name: 'Blastoisinite', mega: 'squirtle', color: '#6890f0', desc: 'Lets Blastoise Mega Evolve.' },
+  venusaurite: { name: 'Venusaurite', mega: 'bulbasaur', color: '#78c850', desc: 'Lets Venusaur Mega Evolve.' },
+  pidgeotite: { name: 'Pidgeotite', mega: 'pidgey', color: '#d8b060', desc: 'Lets Pidgeot Mega Evolve.' },
+  leftovers: { name: 'Leftovers', desc: 'Heals 1% HP per second, even in combat.', mods: { cregen: 0.01 } },
+  choiceband: { name: 'Choice Band', desc: '+25% damage.', mods: { dmg: 1.25 } },
+  quickclaw: { name: 'Quick Claw', desc: 'Attacks 15% faster.', mods: { cd: 0.85 } },
+  rockyhelmet: { name: 'Rocky Helmet', desc: 'Close-range attackers take 30% of their damage back.', mods: { thorns: 0.3 } },
+  eviolite: { name: 'Eviolite', desc: 'Takes 30% less damage until fully evolved.', mods: { eviolite: 0.7 } },
+  expertbelt: { name: 'Expert Belt', desc: 'Super-effective hits deal 25% more.', mods: { expert: 1.25 } },
+  focussash: { name: 'Focus Sash', desc: 'Survives a fatal hit with 1 HP (once a minute).', mods: { sturdy: 60 } },
+  scopelens: { name: 'Scope Lens', desc: '+1 attack range.', mods: { range: 1 } },
+  shellbell: { name: 'Shell Bell', desc: 'Heals for 12% of the damage it deals.', mods: { lifesteal: 0.12 } },
+  amuletcoin: { name: 'Amulet Coin', desc: 'Workers bring back 15% more per trip.', mods: { carry: 1.15 } },
+};
+export const ITEM_KEYS = Object.keys(ITEMS);
+export const megaStoneFor = (line) => ITEM_KEYS.find((k) => ITEMS[k].mega === line);
 
 // Dragon Ascent timing: rockets straight up (untargetable), then dives onto the target area
 export const ASCENT = { rise: 0.9, dive: 0.4 };
@@ -332,6 +361,10 @@ export const SKILLS = {
 export const SKILL_KEYS = Object.keys(SKILLS);
 export const skillsOf = (line) => SKILL_KEYS.filter((k) => SKILLS[k].line === line);
 // starting loadouts until decks are built (3 per line)
+export const DEFAULT_ITEMS = {
+  machop: 'amuletcoin', charmander: 'charizardite', squirtle: 'blastoisinite', bulbasaur: 'venusaurite', geodude: 'quickclaw',
+  eevee: 'eviolite', pikachu: 'expertbelt', pidgey: 'pidgeotite', snorlax: 'leftovers', rayquaza: 'shellbell',
+};
 export const DEFAULT_SKILLS = {
   machop: ['hustle', 'strength', 'bulkup'],
   charmander: ['flamethrower', 'firespin', 'blaze'],

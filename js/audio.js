@@ -52,6 +52,7 @@ export function sfx(name) {
     case 'zap': tone(1200, 0.25, 'sawtooth', 0.035, 0, -900); tone(80, 0.3, 'square', 0.04, 0.05, -40); break;
     case 'beam': tone(300, 0.4, 'sawtooth', 0.03, 0, 300); break;
     case 'whoosh': tone(900, 0.25, 'triangle', 0.03, 0, -700); break;
+    case 'megaevo': [262, 330, 392, 523, 659, 784, 1046].forEach((f, i) => tone(f, 0.22, 'triangle', 0.035, i * 0.25)); tone(130, 1.8, 'sawtooth', 0.025, 0, 260); break;
     case 'build': [523, 659, 784].forEach((f, i) => tone(f, 0.1, 'square', 0.03, i * 0.08)); break;
     case 'train': tone(523, 0.06, 'square', 0.03); tone(784, 0.08, 'square', 0.03, 0.06); break;
     case 'error': tone(180, 0.12, 'square', 0.04); break;

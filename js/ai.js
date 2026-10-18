@@ -1,5 +1,6 @@
 // Computer opponent. Plays through world.issue() just like a human would.
 import { UNITS, FORMS, BUILDINGS, RESEARCH, SKILLS, TILE, DIFFICULTY, researchCost, effectiveness, squadPop, skillResearch } from './config.js';
+import { megaBlock } from './mega.js';
 
 // enemy's most common type -> good counters
 const COUNTER = {
@@ -12,7 +13,7 @@ const LINE_RESEARCH = {
   charmander: ['evo_charmeleon', 'evo_charizard'], squirtle: ['evo_wartortle', 'evo_blastoise'],
   bulbasaur: ['evo_ivysaur', 'evo_venusaur'], geodude: ['evo_graveler', 'evo_golem'],
   pidgey: ['evo_pidgeotto', 'evo_pidgeot'], pikachu: ['thunderstone'],
-  eevee: ['waterstone', 'thunderstone', 'firestone'], rayquaza: ['megastone'],
+  eevee: ['waterstone', 'thunderstone', 'firestone'], rayquaza: [],
 };
 
 export class AI {
@@ -271,6 +272,14 @@ export class AI {
     }
 
     if (smart) this.focusFire(ready);
+    // Mega Evolve squads that are fighting
+    if (this.key !== 'easy' && W.rlevel(pid, 'keystone')) {
+      for (const [, g] of groups) {
+        const sq = W.squadOf(g[0]);
+        if (!sq || !g.some((u) => u.order.type === 'attack') || megaBlock(W, sq)) continue;
+        W.issue(pid, { c: 'mega', ids: [g[0].id] });
+      }
+    }
   }
 
   stagePoint() {
@@ -331,6 +340,8 @@ export class AI {
       wants.push(sk[0] && skillResearch(sk[0]), ...(LINE_RESEARCH[l] || []).slice(0, 1), ...sk.slice(1).map(skillResearch), ...(LINE_RESEARCH[l] || []).slice(1));
     }
     wants.push(...W.loadout(pid, 'machop').map(skillResearch));
+    // Mega Evolution once something can use it
+    if (this.key !== 'easy' && army.some((u) => FORMS[u.form].mega)) wants.unshift('keystone');
     wants.push('harvest', 'attack', 'defense', 'drill', 'bigbag');
     if (this.key === 'hard') wants.push('fortify', 'towerup', 'martplus');
     for (const k of wants) {

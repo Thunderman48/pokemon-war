@@ -243,3 +243,6 @@ button { font-family: inherit; color: inherit; touch-action: manipulation; }
 .skrow .sk.off { opacity: 0.4; }
 .skrow .sk.pas { color: #c9c2ee; }
 .cmd.auto.active { background: #4fbf6a; color: #10301a; }
+.skrow .sk.item { color: #ffe08a; }
+.cmd.mega { background: linear-gradient(135deg, #5a3fa8, #2a5fb0); }
+.cmd.mega.off { background: var(--panel2); }

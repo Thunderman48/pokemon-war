@@ -494,54 +494,6 @@ ICONS = {
         "..oooroo..",
         "...oooo...",
     ],
-    "megastone": [
-        "...wwww...",
-        "..wPPbbw..",
-        ".wPPPbbbw.",
-        ".wPyyvvbw.",
-        ".wyyyvvvw.",
-        ".wyyovvvw.",
-        "..woovvw..",
-        "...wwww...",
-    ],
-    "thunder": [
-        "....yyy.",
-        "...yyy..",
-        "..yyy...",
-        ".yyyyyy.",
-        "....yy..",
-        "...yy...",
-        "..yy....",
-        ".y......",
-    ],
-    "heal": [
-        ".LL..LL.",
-        "LLLLLLLL",
-        "LLLwwLLL",
-        "LLwwwwLL",
-        ".LLwwLL.",
-        "..LLLL..",
-        "...LL...",
-    ],
-    "ascent": [
-        "...yy...",
-        "..yLLy..",
-        ".yL..Ly.",
-        "...LL...",
-        "..LyyL..",
-        "...LL...",
-        "..L..L..",
-        ".L....L.",
-    ],
-    "sleep": [
-        "PPPPP...",
-        "...P....",
-        "..P.....",
-        ".P..www.",
-        "PPPPP.w.",
-        ".....w..",
-        "....www.",
-    ],
 }
 
 
@@ -781,6 +733,10 @@ def save(img, *parts):
 
 
 def main():
+    # Mega Evolutions are painted on top of the final forms (tools/mega_sprites.py)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import mega_sprites
+    SPRITES.update(mega_sprites.build(SPRITES))
     units = [k for k in SPRITES if k not in ("berry", "crystal")]
     imgs = {}
     for k in units:
@@ -799,6 +755,12 @@ def main():
         imgs[k] = sprite_image(SPRITES[k])
         save(imgs[k], "res", k + ".png")
     for k, rows in ICONS.items():
+        imgs["i_" + k] = sprite_image(rows)
+        save(imgs["i_" + k], "icons", k + ".png")
+    # held items and the Key Stone
+    import item_icons
+    PAL.update(item_icons.EXTRA)
+    for k, rows in item_icons.ITEMS.items():
         imgs["i_" + k] = sprite_image(rows)
         save(imgs["i_" + k], "icons", k + ".png")
     blds = {"center": build_center(), "mart": build_mart(), "gym": build_gym(),

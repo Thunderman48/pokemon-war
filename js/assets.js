@@ -1,7 +1,7 @@
 // Loads the pixel-art PNGs from assets/. Replace any PNG to reskin the game.
-import { FORMS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, SKILL_KEYS } from './config.js';
+import { FORMS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, SKILL_KEYS, ITEM_KEYS } from './config.js';
 
-const ICONS = ['thunderstone', 'waterstone', 'firestone', 'megastone', ...SKILL_KEYS];
+const ICONS = ['thunderstone', 'waterstone', 'firestone', 'keystone', ...SKILL_KEYS, ...ITEM_KEYS];
 
 function load(src) {
   return new Promise((res) => {
