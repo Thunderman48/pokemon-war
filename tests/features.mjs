@@ -54,7 +54,7 @@ ok(ee.form === 'vaporeon', 'Eevee -> Vaporeon');
 // only Pokémon in the deck can be trained
 w.issue(0, { c: 'train', id: gym.id, type: 'pidgey' });
 ok(!gym.queue.length, 'Pokémon outside the deck cannot be trained');
-P.deck.slots[5] = { line: 'pidgey', skills: ['hurricane', 'roost', 'keeneye'], item: 'pidgeotite' };
+P.deck.slots[6] = { line: 'pidgey', skills: ['hurricane', 'roost', 'keeneye'], item: 'pidgeotite' };
 P.deckKey = 'pidgey';
 // flying over water/trees: send a Pidgey across the map in a straight line
 w.issue(0, { c: 'train', id: gym.id, type: 'pidgey' });
@@ -323,7 +323,7 @@ void drainT;
   applyStatusTest(w4, sn);
   // auto-cast: a squad with AUTO on uses its skill by itself
   A.research.sk_swift = 1;
-  A.deck.slots[7] = { line: 'eevee', skills: ['quickattack', 'swift', 'adaptability'], item: 'eviolite' }; A.deckKey = 'eevee';
+  A.deck.slots[8] = { line: 'eevee', skills: ['quickattack', 'swift', 'adaptability'], item: 'eviolite' }; A.deckKey = 'eevee';
   const ev = w4.addSquad('eevee', 0, 30 * TILE, 55 * TILE);
   const v6 = [0, 1].map((i) => dummy(1, 33, 55 + i * 0.5, 'charmander'));
   w4.buildHash();
@@ -373,7 +373,7 @@ function applyStatusTest(w, u) {
   // items
   A.deck.slots.find((s) => s.line === 'charmander').item = 'choiceband'; A.deckKey = 'x3';
   ok(Math.abs(w5.stats(lead).dmg / w5.stats({ ...lead, owner: 1 }).dmg - 1.25) < 0.01, 'Choice Band: +25% damage');
-  A.deck.slots[7] = { line: 'eevee', skills: ['quickattack', 'swift', 'adaptability'], item: 'eviolite' }; A.deckKey = 'eevee';
+  A.deck.slots[8] = { line: 'eevee', skills: ['quickattack', 'swift', 'adaptability'], item: 'eviolite' }; A.deckKey = 'eevee';
   const ev = w5.addSquad('eevee', 0, 10 * TILE, 50 * TILE);
   const em = w5.leaderOf(ev);
   let h = em.hp; w5.damage(em, 20, 0, 1);
@@ -386,14 +386,21 @@ function applyStatusTest(w, u) {
   ok(brute.hp < bh, 'Rocky Helmet hurts close-range attackers');
 }
 
-// decks are validated: 8 slots, right classes, no duplicates, 3 skills of that Pokémon
+// decks are validated: 9 slots, right classes, no duplicates, 3 skills of that Pokémon
 {
   const bad = { name: 'x', slots: [{ line: 'charmander' }, { line: 'machop' }, { line: 'squirtle', skills: ['thunder', 'healpulse', 'healpulse'] }, { line: 'squirtle' }] };
   const d = validDeck(bad);
   const lines = d.slots.map((x) => x.line);
-  ok(d.slots.length === 8 && DECK_POOL.worker.includes(lines[0]) && DECK_POOL.legend.includes(lines[1]) &&
-    lines.slice(2).every((l) => DECK_POOL.fighter.includes(l)) && new Set(lines).size === 8, `invalid deck repaired (${lines.join(',')})`);
-  ok(d.slots[2].skills.length === 3 && d.slots[2].skills.every((k) => SKILLS[k].line === 'squirtle') && new Set(d.slots[2].skills).size === 3, 'skills repaired to 3 of its own');
+  ok(d.slots.length === 9 && DECK_POOL.worker.includes(lines[0]) && DECK_POOL.worker.includes(lines[1]) && DECK_POOL.legend.includes(lines[2]) &&
+    lines.slice(3).every((l) => DECK_POOL.fighter.includes(l)) && new Set(lines).size === 9, `invalid deck repaired (${lines.join(',')})`);
+  const sq = d.slots.find((x) => x.line === 'squirtle');
+  ok(sq.skills.length === 3 && sq.skills.every((k) => SKILLS[k].line === 'squirtle') && new Set(sq.skills).size === 3, 'skills repaired to 3 of its own');
+  // an old 8-slot deck (one worker) keeps its Pokémon and choices
+  const old = { name: 'Old', slots: [{ line: 'machop', skills: ['guts', 'pickup', 'hustle'], item: 'leftovers' }, { line: 'mewtwo', skills: ['psystrike', 'barrier', 'recover'], item: 'mewtwonitex' },
+    ...['gastly', 'abra', 'machopf', 'duraludon', 'eevee', 'pidgey'].map((l) => ({ line: l }))] };
+  const up = validDeck(old);
+  ok(up.slots[0].line === 'machop' && up.slots[0].skills.includes('guts') && up.slots[1].line === 'timburr' && up.slots[2].line === 'mewtwo' &&
+    up.slots[2].item === 'mewtwonitex' && up.slots.slice(3).map((x) => x.line).join() === 'gastly,abra,machopf,duraludon,eevee,pidgey', 'old decks upgrade to two worker slots');
   const w6 = new World({ seed: 3, players: [{ deck: AI_DECKS[1] }, {}] });
   ok(w6.players[0].deck.name === 'Sky Storm' && w6.inDeck(0, 'pidgey') && !w6.inDeck(0, 'snorlax'), 'a player brings their own deck');
 }
@@ -404,7 +411,7 @@ function applyStatusTest(w, u) {
   const w7 = new World({ seed: 31, players: [{ deck }, {}] });
   const A = w7.players[0], B = w7.players[1];
   A.noFog = B.noFog = true;
-  ok(w7.unitsOf(0).every((u) => u.type === 'timburr'), 'a Timburr deck starts with Timburr workers');
+  ok(w7.unitsOf(0).filter((u) => u.type === 'timburr').length === 3 && w7.unitsOf(0).filter((u) => u.type === 'machop').length === 2, 'both workers in the deck start on the field');
   const c0 = w7.buildingsOf(0)[0];
   c0.hp = c0.maxHp * 0.5;
   A.research.sk_repair = 1;
@@ -427,13 +434,13 @@ function applyStatusTest(w, u) {
   ok(w7.stats(near).cd > cd0 * 1.2, 'Pressure slows nearby enemies');
   // Teleport moves the whole squad
   A.research.sk_teleport = 1;
-  A.deck.slots[2].skills = ['psybeam', 'teleport', 'magicguard']; A.deckKey = 'tp';
+  A.deck.slots[3].skills = ['psybeam', 'teleport', 'magicguard']; A.deckKey = 'tp';
   const ab = sq('abra', 0, 10, 50);
   w7.issue(0, { c: 'cast', ids: ab.members, key: 'teleport', x: 16 * TILE, y: 50 * TILE });
   run(w7, 0.2);
   ok(w7.squadUnits(ab).every((m) => Math.abs(m.x - 16 * TILE) < 30), 'Teleport moved the whole squad');
   // Curse makes enemies take more damage; Night Shade ignores types
-  A.deck.slots[3].skills = ['shadowball', 'curse', 'nightshade']; A.deckKey = 'gh';
+  A.deck.slots[4].skills = ['shadowball', 'curse', 'nightshade']; A.deckKey = 'gh';
   A.research.sk_curse = 1; A.research.sk_nightshade = 1;
   const gq = sq('gastly', 0, 40, 50);
   const dummy = w7.addUnit('snorlax', 1, 44 * TILE, 50 * TILE); dummy.stun = 30;
@@ -449,13 +456,13 @@ function applyStatusTest(w, u) {
   run(w7, 0.2);
   ok(Math.abs((h - dummy.hp) - 34 * 1.35) < 1, 'Night Shade deals fixed damage (ghost vs normal is not resisted)');
   // Stalwart: no knock-back
-  A.deck.slots[5].skills = ['electroshot', 'flashcannon', 'stalwart']; A.deckKey = 'st';
+  A.deck.slots[6].skills = ['electroshot', 'flashcannon', 'stalwart']; A.deckKey = 'st';
   A.research.sk_stalwart = 1; A.research.sk_electroshot = 1;
   const dq = sq('duraludon', 0, 20, 20);
   const dl = w7.leaderOf(dq);
   const x0 = dl.x;
   B.research.sk_hurricane = 1;
-  B.deck.slots.find((x) => x.line === 'pidgey') || (B.deck.slots[7] = { line: 'pidgey', skills: ['hurricane', 'roost', 'keeneye'], item: null });
+  B.deck.slots.find((x) => x.line === 'pidgey') || (B.deck.slots[8] = { line: 'pidgey', skills: ['hurricane', 'roost', 'keeneye'], item: null });
   B.deckKey = 'pg';
   const pq = w7.addSquad('pidgey', 1, 26 * TILE, 20 * TILE); pq.auto = false;
   w7.buildHash();

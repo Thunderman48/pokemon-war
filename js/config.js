@@ -541,13 +541,13 @@ export function reinforceCost(type) {
 }
 
 // ---------------------------------------------------------------- decks
-// A deck has 8 slots: 1 worker, 1 legendary and 6 fighters, each with a held item and 3 skills.
+// A deck has 9 slots: 2 workers, 1 legendary and 6 fighters, each with a held item and 3 skills.
 export const DECK_POOL = {
   worker: ['machop', 'timburr'],
   legend: ['rayquaza', 'mewtwo'],
   fighter: ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee', 'pikachu', 'pidgey', 'snorlax', 'gastly', 'machopf', 'abra', 'duraludon'],
 };
-export const DECK_CLASSES = ['worker', 'legend', 'fighter', 'fighter', 'fighter', 'fighter', 'fighter', 'fighter'];
+export const DECK_CLASSES = ['worker', 'worker', 'legend', 'fighter', 'fighter', 'fighter', 'fighter', 'fighter', 'fighter'];
 export const lineClass = (line) => Object.keys(DECK_POOL).find((c) => DECK_POOL[c].includes(line));
 BUILDINGS.center.trains = DECK_POOL.worker;
 BUILDINGS.gym.trains = DECK_POOL.fighter;
@@ -556,40 +556,45 @@ BUILDINGS.skypillar.trains = DECK_POOL.legend;
 const slot = (line, skills, item) => ({ line, skills: skills || DEFAULT_SKILLS[line], item: item === undefined ? DEFAULT_ITEMS[line] || null : item });
 export const DEFAULT_DECK = {
   name: 'Starter',
-  slots: ['machop', 'rayquaza', 'charmander', 'squirtle', 'bulbasaur', 'geodude', 'pikachu', 'snorlax'].map((l) => slot(l)),
+  slots: ['machop', 'timburr', 'rayquaza', 'charmander', 'squirtle', 'bulbasaur', 'geodude', 'pikachu', 'snorlax'].map((l) => slot(l)),
 };
 // decks the computer plays with
 export const AI_DECKS = [
-  { name: 'Classic', slots: ['machop', 'rayquaza', 'charmander', 'squirtle', 'bulbasaur', 'geodude', 'pikachu', 'snorlax'].map((l) => slot(l)) },
+  { name: 'Classic', slots: ['machop', 'timburr', 'rayquaza', 'charmander', 'squirtle', 'bulbasaur', 'geodude', 'pikachu', 'snorlax'].map((l) => slot(l)) },
   {
     name: 'Sky Storm',
-    slots: [slot('machop'), slot('rayquaza', ['ascent', 'dragonbreath', 'deltastream']), slot('pidgey', ['hurricane', 'bravebird', 'keeneye']),
+    slots: [slot('machop'), slot('timburr', ['construction', 'quickhaul', 'rockclimb']), slot('rayquaza', ['ascent', 'dragonbreath', 'deltastream']), slot('pidgey', ['hurricane', 'bravebird', 'keeneye']),
       slot('charmander', ['flamethrower', 'heatwave', 'blaze']), slot('pikachu', ['thunder', 'volttackle', 'static']), slot('eevee', ['quickattack', 'helpinghand', 'adaptability']),
       slot('squirtle', ['healpulse', 'hydropump', 'protect']), slot('geodude', ['rockslide', 'selfdestruct', 'sturdy'])],
   },
   {
     name: 'Bulwark',
-    slots: [slot('machop', ['hustle', 'strength', 'guts']), slot('rayquaza', ['ascent', 'outrage', 'airlock']), slot('snorlax', ['bodyslam', 'yawn', 'immunity'], 'leftovers'),
+    slots: [slot('machop', ['hustle', 'strength', 'guts']), slot('timburr', ['repair', 'construction', 'sheerforce']), slot('rayquaza', ['ascent', 'outrage', 'airlock']), slot('snorlax', ['bodyslam', 'yawn', 'immunity'], 'leftovers'),
       slot('squirtle', ['healpulse', 'protect', 'shellarmor']), slot('bulbasaur', ['sleeppowder', 'solarbeam', 'poisonpoint']), slot('geodude', ['rockslide', 'rollout', 'solidrock'], 'rockyhelmet'),
       slot('eevee', ['swift', 'helpinghand', 'anticipation']), slot('charmander', ['flamethrower', 'firespin', 'solarpower'])],
   },
   {
     name: 'Mind Games',
-    slots: [slot('timburr'), slot('mewtwo', ['psystrike', 'futuresight', 'pressure'], 'mewtwonitey'), slot('abra', ['psybeam', 'calmmind', 'magicguard']),
+    slots: [slot('timburr'), slot('machop', ['hustle', 'pickup', 'bulkup']), slot('mewtwo', ['psystrike', 'futuresight', 'pressure'], 'mewtwonitey'), slot('abra', ['psybeam', 'calmmind', 'magicguard']),
       slot('gastly', ['shadowball', 'curse', 'levitate']), slot('machopf', ['crosschop', 'dynamicpunch', 'noguard']), slot('duraludon', ['electroshot', 'dracometeor', 'stamina']),
       slot('squirtle', ['healpulse', 'hydropump', 'shellarmor']), slot('pikachu', ['thunder', 'thunderwave', 'static'])],
   },
 ];
 
-// Fixes up a deck (from storage or the network) so it is always legal: 8 slots of the right classes,
-// no duplicate Pokémon, 3 different skills of that Pokémon, a known item.
+// Fixes up a deck (from storage or the network) so it is always legal: 9 slots of the right classes,
+// no duplicate Pokémon, 3 different skills of that Pokémon, a known item. Slots are matched by class,
+// so older decks (one worker slot) keep their Pokémon and choices.
 export function validDeck(deck) {
   const out = { name: (deck && typeof deck.name === 'string' ? deck.name : 'Deck').slice(0, 16), slots: [] };
   const used = new Set();
-  DECK_CLASSES.forEach((cls, i) => {
-    const s = (deck && deck.slots && deck.slots[i]) || {};
-    let line = DECK_POOL[cls].includes(s.line) && !used.has(s.line) ? s.line : null;
-    if (!line) line = DEFAULT_DECK.slots.map((x) => x.line).concat(DECK_POOL[cls]).find((l) => DECK_POOL[cls].includes(l) && !used.has(l));
+  const given = (deck && Array.isArray(deck.slots) ? deck.slots : []).filter((x) => x && typeof x === 'object');
+  const taken = new Set();
+  DECK_CLASSES.forEach((cls) => {
+    const gi = given.findIndex((x, j) => !taken.has(j) && DECK_POOL[cls].includes(x.line) && !used.has(x.line));
+    if (gi >= 0) taken.add(gi);
+    const s = gi >= 0 ? given[gi] : {};
+    let line = gi >= 0 ? s.line : null;
+    if (!line) line = DEFAULT_DECK.slots.map((x) => x.line).concat(DECK_POOL[cls]).find((l) => DECK_POOL[cls].includes(l) && !used.has(l)) || DECK_POOL[cls][0];
     used.add(line);
     const all = skillsOf(line);
     let skills = Array.isArray(s.skills) ? [...new Set(s.skills.filter((k) => all.includes(k)))] : [];

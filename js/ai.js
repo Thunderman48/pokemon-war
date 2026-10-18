@@ -72,8 +72,10 @@ export class AI {
     this.built = false;
 
     // --- economy
-    const wt = W.workerType(pid);
-    if (centers.length && workers.length + queued(wt) < this.d.workers * Math.min(2, centers.length)) {
+    // train whichever of the deck's workers we have fewer of
+    const wts = W.workerTypes(pid);
+    const wt = wts.reduce((a, b) => (workers.filter((u) => u.type === b).length + queued(b) < workers.filter((u) => u.type === a).length + queued(a) ? b : a));
+    if (centers.length && workers.length + wts.reduce((n, t) => n + queued(t), 0) < this.d.workers * Math.min(2, centers.length)) {
       const c = centers.find((x) => x.queue.length < 2);
       if (c && W.canAfford(pid, UNITS[wt].cost) && me.pop + 1 <= me.cap) W.issue(pid, { c: 'train', id: c.id, type: wt });
     }
@@ -139,8 +141,8 @@ export class AI {
     const pillar = blds.find((b) => b.type === 'skypillar' && b.built);
     if (pillar && !pillar.queue.some((q) => q.u)) {
       if (!pillar.rally) this.setRally(pillar);
-      const lg = me.deck.slots[1].line;
-      if (W.unitCount(pid, lg) < (UNITS[lg].limit || 1) && W.canAfford(pid, UNITS[lg].cost) && me.pop + squadPop(lg) <= me.cap)
+      const lg = W.legendType(pid);
+      if (lg && W.unitCount(pid, lg) < (UNITS[lg].limit || 1) && W.canAfford(pid, UNITS[lg].cost) && me.pop + squadPop(lg) <= me.cap)
         W.issue(pid, { c: 'train', id: pillar.id, type: lg });
     }
 
@@ -348,7 +350,7 @@ export class AI {
       const sk = W.loadout(pid, l).filter((k) => this.d.moves || SKILLS[k].kind === 'p');
       wants.push(sk[0] && skillResearch(sk[0]), ...(LINE_RESEARCH[l] || []).slice(0, 1), ...sk.slice(1).map(skillResearch), ...(LINE_RESEARCH[l] || []).slice(1));
     }
-    wants.push(...W.loadout(pid, W.workerType(pid)).map(skillResearch));
+    for (const wt of W.workerTypes(pid)) wants.push(...W.loadout(pid, wt).map(skillResearch));
     // Mega Evolution once something can use it
     if (this.key !== 'easy' && army.some((u) => FORMS[u.form].mega)) wants.unshift('keystone');
     wants.push('harvest', 'attack', 'defense', 'drill', 'bigbag');
@@ -386,7 +388,7 @@ export class AI {
   // a fighter from the AI's deck: often a counter to the enemy's most common type
   pickUnit(enemyTypes, armySize) {
     const W = this.w, pid = this.pid;
-    const opts = W.players[pid].deck.slots.slice(2).map((s) => s.line)
+    const opts = W.players[pid].deck.slots.map((s) => s.line).filter((t) => !UNITS[t].worker && !UNITS[t].limit)
       .filter((t) => W.reqMet(pid, UNITS[t].req) && (squadPop(t) < 8 || armySize >= 6));
     if (!opts.length) return null;
     const ok = (t) => opts.includes(t);

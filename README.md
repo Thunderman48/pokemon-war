@@ -14,7 +14,7 @@ Gather berries and crystals, build up your base, train Pokémon, evolve them in 
 - **Squads** (Dawn of War style): battle Pokémon train in squads (4 small Pokémon, 3 Geodude, 2 Snorlax or Duraludon,
   1 legendary) that move and fight together, share XP and evolve together. Fallen members come back on their own after a
   few seconds out of combat, for 30% of a member's price. Supply is bigger (200) and a squad holds supply for its full size.
-- **Deck building**: on the DECK screen pick 1 worker, 1 legendary and 6 fighters (no Pokémon twice), and for each one a
+- **Deck building**: on the DECK screen pick 2 workers, 1 legendary and 6 fighters (no Pokémon twice), and for each one a
   held item and 3 of its 6 skills. Three decks are saved on your device; bring one into every match (online too).
 - **Skills**: every Pokémon has 6 skills, passive (always on) or active. Each skill is researched at the Lab. Active skills
   are used automatically when a good target is near; turn AUTO off on a squad to aim them yourself. Burn, poison,
@@ -46,7 +46,7 @@ Gather berries and crystals, build up your base, train Pokémon, evolve them in 
 
 | Building | Cost (berries / crystals) | Trains | Notes |
 |---|---|---|---|
-| Pokémon Center | 400 | Your deck's worker | Drop-off, heals nearby Pokémon, +15 supply |
+| Pokémon Center | 400 | Your deck's 2 workers | Drop-off, heals nearby Pokémon, +15 supply |
 | Poké Mart | 100 | | +15 supply (+20 with Mart Expansion) |
 | Gym | 150 | Your deck's 6 fighters | Pikachu, Abra, Snorlax and Duraludon need a Lab |
 | Lab (needs Gym) | 150 / 100 | | **All research**, in pages: GENERAL and one per Pokémon in your deck |

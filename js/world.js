@@ -96,7 +96,9 @@ export class World {
       const b = this.addBuilding('center', pid, s.tx, s.ty, true);
       for (let i = 0; i < 5; i++) {
         const spot = this.spawnSpot(b, i);
-        this.addUnit(this.workerType(pid), pid, spot.x, spot.y);
+        // starting workers: 3 of the first worker in the deck, 2 of the second
+        const wt = this.workerTypes(pid);
+        this.addUnit(wt[i < 3 ? 0 : wt.length - 1], pid, spot.x, spot.y);
       }
     });
     this.updateFog();
@@ -227,7 +229,9 @@ export class World {
     const p = this.players[pid];
     return !!(p && p.deck.slots.some((s) => s.line === line));
   }
-  workerType(pid) { return this.players[pid].deck.slots[0].line; }
+  workerTypes(pid) { return this.players[pid].deck.slots.filter((s) => UNITS[s.line].worker).map((s) => s.line); }
+  workerType(pid) { return this.workerTypes(pid)[0]; }
+  legendType(pid) { const s = this.players[pid].deck.slots.find((x) => UNITS[x.line].limit); return s ? s.line : null; }
 
   // an active or passive skill this unit's player has chosen and researched
   knows(u, key) {

@@ -1,4 +1,4 @@
-// Deck building: 8 slots (1 worker, 1 legendary, 6 fighters), each with a held item and 3 skills.
+// Deck building: 9 slots (2 workers, 1 legendary, 6 fighters), each with a held item and 3 skills.
 // Three decks are kept on the device; the one in use is brought into every match.
 import {
   DECK_POOL, DECK_CLASSES, DEFAULT_DECK, ITEMS, ITEM_KEYS, SKILLS, FORMS, UNITS, TYPE_COLORS, validDeck, skillsOf, squadSize,
