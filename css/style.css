@@ -234,3 +234,12 @@ button { font-family: inherit; color: inherit; touch-action: manipulation; }
 .portrait { position: relative; }
 .portrait .pips { position: absolute; bottom: 1px; left: 0; right: 0; text-align: center; font-size: 7px; color: #7dff7d; letter-spacing: 1px; text-shadow: 1px 1px 0 #000; font-style: normal; font-weight: normal; }
 .cnt { position: absolute; top: 1px; right: 2px; font-size: 6px; font-style: normal; color: #fff; text-shadow: 1px 1px 0 #000; }
+
+/* skills */
+.cmd .lbl.xs { font-size: 4px; letter-spacing: -0.4px; }
+.skrow { display: flex; gap: 6px; flex-wrap: wrap; font-size: 6px; color: var(--text, #fff); }
+.skrow .sk { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.skrow .sk img { width: 11px; height: 11px; image-rendering: pixelated; }
+.skrow .sk.off { opacity: 0.4; }
+.skrow .sk.pas { color: #c9c2ee; }
+.cmd.auto.active { background: #4fbf6a; color: #10301a; }

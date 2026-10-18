@@ -48,6 +48,10 @@ export function sfx(name) {
     case 'dive': tone(1400, 0.4, 'sawtooth', 0.035, 0, -1200); break;
     case 'quake': tone(90, 0.9, 'sawtooth', 0.08, 0, -60); tone(55, 1.1, 'square', 0.07, 0.03, -30); tone(700, 0.2, 'triangle', 0.04, 0, -600); tone(160, 0.5, 'sawtooth', 0.05, 0.15, -120); break;
     case 'boom': tone(110, 0.45, 'sawtooth', 0.06, 0, -80); tone(70, 0.6, 'square', 0.05, 0.02, -45); tone(900, 0.12, 'triangle', 0.03, 0, -700); break;
+    case 'skill': tone(392, 0.07, 'square', 0.03); tone(784, 0.1, 'square', 0.03, 0.06); break;
+    case 'zap': tone(1200, 0.25, 'sawtooth', 0.035, 0, -900); tone(80, 0.3, 'square', 0.04, 0.05, -40); break;
+    case 'beam': tone(300, 0.4, 'sawtooth', 0.03, 0, 300); break;
+    case 'whoosh': tone(900, 0.25, 'triangle', 0.03, 0, -700); break;
     case 'build': [523, 659, 784].forEach((f, i) => tone(f, 0.1, 'square', 0.03, i * 0.08)); break;
     case 'train': tone(523, 0.06, 'square', 0.03); tone(784, 0.08, 'square', 0.03, 0.06); break;
     case 'error': tone(180, 0.12, 'square', 0.04); break;

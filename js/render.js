@@ -1,6 +1,7 @@
 // Canvas renderer: terrain, entities, effects, fog of war, minimap.
 import { TILE, UNITS, FORMS, BUILDINGS, TEAM_COLORS, researchTime } from './config.js';
 import { isFlying } from './world.js';
+import { drawSkillFx, skillFxLife, drawStatus } from './skillfx.js';
 import { T } from './map.js';
 
 const MINI_COLORS = {
@@ -359,6 +360,7 @@ export class Renderer {
       ctx.fillText('Z', x + 1, dy + 1 - ((k + 0.5) % 1) * 6);
       ctx.globalAlpha = 1;
     }
+    drawStatus(this, e, x, dy, dy + h * 0.6, now);
     if (e.evoReady && e.owner === this.pid) {
       ctx.fillStyle = Math.floor(now / 250) % 2 ? '#fff36b' : '#ffffff';
       ctx.fillRect(Math.round(x - 1), Math.round(dy - 9), 2, 5);
@@ -431,6 +433,22 @@ export class Renderer {
     ctx.strokeRect(left + 0.5, top + 0.5, def.w * TILE - 1, def.h * TILE - 1);
   }
 
+  drawFxBolt(f, t) {
+    const ctx = this.ctx;
+    ctx.fillStyle = `rgba(255,255,200,${0.35 * (1 - t)})`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r, f.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+    if (t < 0.5) {
+      for (let j = -1; j <= 1; j++) {
+        ctx.strokeStyle = j ? '#fff36b' : '#ffffff'; ctx.lineWidth = j ? 1.5 : 2.5;
+        ctx.beginPath();
+        let bx = f.x + j * f.r * 0.5, by = f.y - 90;
+        ctx.moveTo(bx, by);
+        for (let k = 1; k <= 6; k++) { bx = f.x + j * f.r * 0.5 + ((k * 37 + j * 11) % 9 - 4) * 1.5; by = f.y - 90 + k * 15; ctx.lineTo(bx, by); }
+        ctx.stroke();
+      }
+    }
+  }
+
   drawFx(now) {
     const ctx = this.ctx;
     const world = this.world;
@@ -440,10 +458,10 @@ export class Renderer {
       const life = f.k === 'p' ? f.d : f.k === 'evo' ? 1.4 : f.k === 'die' ? (f.b ? 0.9 : 0.5) : f.k === 'heal' ? 0.7 :
         f.k === 'zap' ? 0.5 : f.k === 'bolt' ? 0.6 : f.k === 'healp' ? 0.8 : f.k === 'sleep' ? 1.2 : f.k === 'boom' ? 1.0 :
         f.k === 'ascent' ? 1.0 : f.k === 'mark' || f.k === 'dive' || f.k === 'drain' ? f.d : f.k === 'quake' ? 1.5 :
-        f.k === 'drained' ? 1.3 : f.k === 'reinforce' ? 0.7 : 0.3;
+        f.k === 'drained' ? 1.3 : f.k === 'reinforce' ? 0.7 : skillFxLife(f) || 0.3;
       if (age > life) { this.fx.splice(i, 1); continue; }
       const t = age / life;
-      const fxX = f.k === 'p' ? f.x2 : f.k === 'drain' ? f.x1 : f.x, fxY = f.k === 'p' ? f.y2 : f.k === 'drain' ? f.y1 : f.y;
+      const fxX = f.k === 'p' ? f.x2 : f.k === 'drain' || f.k === 'beam' ? f.x1 : f.x, fxY = f.k === 'p' ? f.y2 : f.k === 'drain' || f.k === 'beam' ? f.y1 : f.y;
       const tx = Math.floor(fxX / TILE), ty = Math.floor(fxY / TILE);
       if (tx >= 0 && ty >= 0 && tx < world.w && ty < world.h && !world.vis[this.pid][ty * world.w + tx]) {
         if (f.k !== 'p') continue;
@@ -501,18 +519,7 @@ export class Renderer {
         ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r, f.r * 0.7, 0, 0, Math.PI * 2); ctx.stroke();
         ctx.setLineDash([]);
       } else if (f.k === 'bolt') {
-        ctx.fillStyle = `rgba(255,255,200,${0.35 * (1 - t)})`;
-        ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r, f.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
-        if (t < 0.5) {
-          for (let j = -1; j <= 1; j++) {
-            ctx.strokeStyle = j ? '#fff36b' : '#ffffff'; ctx.lineWidth = j ? 1.5 : 2.5;
-            ctx.beginPath();
-            let bx = f.x + j * f.r * 0.5, by = f.y - 90;
-            ctx.moveTo(bx, by);
-            for (let k = 1; k <= 6; k++) { bx = f.x + j * f.r * 0.5 + ((k * 37 + j * 11) % 9 - 4) * 1.5; by = f.y - 90 + k * 15; ctx.lineTo(bx, by); }
-            ctx.stroke();
-          }
-        }
+        this.drawFxBolt(f, t);
       } else if (f.k === 'healp') {
         for (let j = 0; j < 2; j++) {
           const rr = f.r * Math.min(1, t * 1.6 + j * 0.25);
@@ -561,10 +568,13 @@ export class Renderer {
         ctx.fillStyle = `rgba(140,255,160,${1 - t})`; ctx.fillText(`+${f.amt}`, f.x, f.y - 30 - t * 14);
         ctx.textAlign = 'left';
       } else if (f.k === 'boom') {
-        this.dragonBoom(f, t, now);
+        if (f.s) drawSkillFx(this, { ...f, k: 'sk_hit' }, t, now);
+        else this.dragonBoom(f, t, now);
       } else if (f.k === 'done') {
         ctx.strokeStyle = `rgba(255,230,120,${1 - t})`; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(f.x, f.y, 20 + t * 14, (20 + t * 14) * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
+      } else if (skillFxLife(f)) {
+        drawSkillFx(this, f, t, now);
       }
     }
   }

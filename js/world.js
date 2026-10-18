@@ -1,11 +1,14 @@
 // Authoritative game simulation. DOM-free so it can run headless (tests) or on the host.
 import {
-  TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ABILITIES, EVO_XP, EVO_MULT,
+  TILE, TICK, MAX_POP, UNITS, FORMS, BUILDINGS, RESEARCH, RESOURCES, ASCENT, EVO_XP, EVO_MULT, SKILLS, DEFAULT_SKILLS, skillResearch,
   UNIT_KEYS, FORM_KEYS, BUILDING_KEYS, RES_KEYS, effectiveness, researchCost, researchTime, REGEN_DELAY, REGEN_RATE,
   REINFORCE_DELAY, REINFORCE_TIME, squadSize, squadPop, reinforceCost,
 } from './config.js';
 import { generateMap, tileBlocked } from './map.js';
 import { Pathfinder } from './path.js';
+import {
+  unitMods, applyStatus, updateStatus, performSkill, updateDash, updateCharge, resolveArea, updateZones, autoTarget, addBuff,
+} from './skills.js';
 
 const CELL = 32;
 const circleCache = new Map();
@@ -22,22 +25,28 @@ export function isFlying(u) {
   return u.kind === 'unit' && !!(UNITS[u.type].flying || FORMS[u.form].flying);
 }
 
-// Effective stats for a unit given its form and its owner's research.
-export function unitStats(u, research) {
+// Effective stats for a unit given its form, its owner's research and active skill mods.
+export function unitStats(u, research, mods) {
   const d = UNITS[u.type];
   const f = FORMS[u.form];
   const m = f.mult || EVO_MULT[f.stage];
   const r = research || {};
+  const k = mods || {};
+  const ranged = d.range >= 1;
   return {
-    maxHp: Math.round(d.hp * m.hp),
-    dmg: d.dmg * m.dmg * (1 + 0.15 * (r.attack || 0)),
-    range: (d.range >= 1 ? d.range + (m.range || 0) : d.range) * TILE,
-    speed: d.speed * (m.speed || 1) * TILE,
-    sight: d.sight + f.stage,
-    cd: d.cd * (m.cd || 1),
+    maxHp: Math.round(d.hp * m.hp * (k.hp || 1)),
+    dmg: d.dmg * m.dmg * (1 + 0.15 * (r.attack || 0)) * (k.dmg || 1) * (k.pinch && u.hp < u.maxHp / 3 ? k.pinch : 1),
+    range: (ranged ? d.range + (m.range || 0) + (k.range || 0) : d.range) * TILE,
+    speed: d.speed * (m.speed || 1) * (k.speed || 1) * (u.slow ? u.slow.m : 1) * TILE,
+    sight: d.sight + f.stage + (k.sight || 0),
+    cd: d.cd * (m.cd || 1) * (k.cd || 1),
     proj: f.proj || d.proj,
     type: f.type,
   };
+}
+
+export function defaultDeck() {
+  return { slots: Object.entries(DEFAULT_SKILLS).map(([line, skills]) => ({ line, skills: [...skills], item: null })) };
 }
 
 export class World {
@@ -57,6 +66,8 @@ export class World {
     this.players = players.map((p, i) => ({
       id: i, name: p.name || `Player ${i + 1}`, b: 250, c: 50, pop: 0, cap: 0,
       research: {}, gatherMult: p.gatherMult || 1, alive: true, ai: !!p.ai,
+      // the player's deck: one slot per Pokémon line with its 3 chosen skills (and item)
+      deck: p.deck || defaultDeck(),
       stats: { trained: 0, killed: 0, lost: 0, gathered: 0 }, lastAlert: -99, hinted: {},
     }));
     this.time = 0; this.tick = 0; this.winner = -1;
@@ -68,6 +79,7 @@ export class World {
     this.hash = new Map();
     this.projectiles = [];
     this.effects = [];
+    this.zones = [];
     this.pathBudget = 0;
     this.version = 0; // bumps when buildings/resources change (renderer cache)
     if (sim) this.setup();
@@ -105,12 +117,13 @@ export class World {
       gatherT: 0, stuckT: 0, lastX: x, lastY: y, sleep: 0, acd: 0, evoReady: false,
     };
     this.ents.set(u.id, u);
+    if (this.sim && this.players[owner]) u.maxHp = u.hp = this.stats(u).maxHp;
     return u;
   }
 
   // A squad of `size` members of `type`, spawned around (x, y).
   addSquad(type, owner, x, y, id) {
-    const sq = { id: id || this.nextId++, owner, type, form: type, size: squadSize(type), members: [], xp: 0, evoReady: false, rT: 0, warned: false };
+    const sq = { id: id || this.nextId++, owner, type, form: type, size: squadSize(type), members: [], xp: 0, evoReady: false, rT: 0, warned: false, cds: {}, auto: true, scan: Math.random() };
     this.squads.set(sq.id, sq);
     for (let i = 0; i < sq.size; i++) {
       const p = this.squadSpot(x, y, i, type);
@@ -198,7 +211,22 @@ export class World {
 
   // ------------------------------------------------------------------ queries
   rlevel(pid, key) { const p = this.players[pid]; return (p && p.research[key]) || 0; }
-  stats(u) { return unitStats(u, this.players[u.owner] && this.players[u.owner].research); }
+  stats(u) { return unitStats(u, this.players[u.owner] && this.players[u.owner].research, unitMods(this, u)); }
+  mods(u) { return unitMods(this, u); }
+
+  // skills a player chose for a Pokémon line (empty if the line isn't in their deck)
+  loadout(pid, line) {
+    const p = this.players[pid];
+    const slot = p && p.deck.slots.find((s) => s.line === line);
+    return slot ? slot.skills : [];
+  }
+  // an active or passive skill this unit's player has chosen and researched
+  knows(u, key) {
+    return SKILLS[key].line === FORMS[u.form].line && this.loadout(u.owner, SKILLS[key].line).includes(key) && !!this.rlevel(u.owner, skillResearch(key));
+  }
+  activeSkills(u) {
+    return this.loadout(u.owner, FORMS[u.form].line).filter((k) => SKILLS[k].kind === 'a');
+  }
 
   blockedTile(tx, ty) {
     if (tx < 0 || ty < 0 || tx >= this.w || ty >= this.h) return true;
@@ -258,6 +286,7 @@ export class World {
     if (this.researching(pid, key)) return 'Already researching';
     if (r.req && !this.rlevel(pid, r.req)) return `Research ${RESEARCH[r.req].name} first`;
     if (r.reqB && !this.hasBuilt(pid, r.reqB)) return `Requires ${BUILDINGS[r.reqB].name}`;
+    if (r.skill && !this.loadout(pid, r.line).includes(r.skill)) return 'Not in your deck';
     return null;
   }
 
@@ -452,15 +481,28 @@ export class World {
         break;
       }
       case 'cast': {
-        const ab = ABILITIES[cmd.key];
-        if (!ab || !this.rlevel(pid, ab.research)) return;
-        const cands = own(cmd.ids).filter((u) => FORMS[u.form].ability === cmd.key && u.acd <= 0 && u.sleep <= 0);
-        if (!cands.length) return this.notify(pid, `${ab.name} is not ready`, 'warn');
+        // the squad nearest the target whose skill is ready uses it (through its leader)
+        const S = SKILLS[cmd.key];
+        if (!S || S.kind !== 'a') return;
+        const seen = new Set(), cands = [];
+        for (const u of own(cmd.ids)) {
+          const sq = this.squadOf(u);
+          if (!sq || seen.has(sq.id)) continue;
+          seen.add(sq.id);
+          const lead = this.leaderOf(sq);
+          if (lead && this.knows(lead, cmd.key) && !(sq.cds[cmd.key] > 0)) cands.push(lead);
+        }
+        if (!cands.length) return this.notify(pid, `${S.name} is not ready`, 'warn');
         cands.sort((a, b) => Math.hypot(a.x - cmd.x, a.y - cmd.y) - Math.hypot(b.x - cmd.x, b.y - cmd.y));
-        const u = cands[0];
-        const prev = u.order.type === 'cast' ? u.order.prev : u.order;
-        u.order = { type: 'cast', key: cmd.key, x: cmd.x, y: cmd.y, prev };
-        this.clearPath(u);
+        this.startCast(cands[0], cmd.key, cmd.x, cmd.y);
+        break;
+      }
+      case 'auto': {
+        const seen = new Set();
+        for (const u of own(cmd.ids)) {
+          const sq = this.squadOf(u);
+          if (sq && !seen.has(sq.id)) { seen.add(sq.id); sq.auto = !!cmd.on; }
+        }
         break;
       }
       case 'surrender':
@@ -468,6 +510,14 @@ export class World {
         this.checkWin(true);
         break;
     }
+  }
+
+  startCast(lead, key, x, y) {
+    const S = SKILLS[key];
+    if (S.target === 'self') { x = lead.x; y = lead.y; }
+    const prev = lead.order.type === 'cast' ? lead.order.prev : lead.order;
+    lead.order = { type: 'cast', key, x, y, prev };
+    this.clearPath(lead);
   }
 
   researching(pid, key) {
@@ -650,6 +700,7 @@ export class World {
       else if (e.kind === 'building') this.updateBuilding(e, dt);
     }
     this.updateSquads(dt);
+    updateZones(this, dt);
     this.updateProjectiles(dt);
     this.updateEffects(dt);
     this.separate();
@@ -702,18 +753,22 @@ export class World {
     const def = UNITS[u.type];
     const st = this.stats(u);
     if (u.cd > 0) u.cd -= dt;
-    if (u.acd > 0) u.acd -= dt;
     if (u.anim > 0) u.anim -= dt;
     if (u.repathT > 0) u.repathT -= dt;
     u.scanT -= dt;
     u.moving = false;
+    if (updateStatus(this, u, dt) || !this.ents.has(u.id)) return;
     if (u.sleep > 0) { u.sleep -= dt; return; }
     if (u.ascend) { this.updateAscent(u, dt); return; }
+    if (u.dash) { updateDash(this, u, dt); return; }
+    if (u.charge) { updateCharge(this, u, dt); return; }
     // passive regeneration out of combat: a share of max HP per second
+    const mods = this.mods(u);
     if (u.hp < u.maxHp && this.time - (u.lastCombat ?? -99) > REGEN_DELAY) {
-      u.hp = Math.min(u.maxHp, u.hp + u.maxHp * REGEN_RATE * dt);
+      u.hp = Math.min(u.maxHp, u.hp + u.maxHp * REGEN_RATE * (mods.regen || 1) * dt);
       if ((this.tick + u.id) % 50 === 0) this.fx.push({ k: 'heal', x: u.x | 0, y: u.y | 0 });
     }
+    if (mods.cregen && u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * mods.cregen * dt);
     // pushed into a building footprint? pop out
     if (!isFlying(u) && this.blockedAt(u.x, u.y)) {
       const f = this.nearestFree(Math.floor(u.x / TILE), Math.floor(u.y / TILE), 5);
@@ -775,17 +830,21 @@ export class World {
         break;
       }
       case 'cast': {
-        const ab = ABILITIES[o.key];
-        if (u.acd > 0) { u.order = o.prev || { type: 'idle' }; this.clearPath(u); break; }
-        if (Math.hypot(o.x - u.x, o.y - u.y) <= ab.range * TILE) {
-          this.performAbility(u, o.key, o.x, o.y);
-          u.acd = ab.cd;
-          // the whole squad shares one cooldown
-          const sq = this.squadOf(u);
-          if (sq) for (const m of this.squadUnits(sq)) m.acd = ab.cd;
+        const S = SKILLS[o.key];
+        const sq = this.squadOf(u);
+        if (!sq || sq.cds[o.key] > 0 || !this.knows(u, o.key)) { u.order = o.prev || { type: 'idle' }; this.clearPath(u); break; }
+        if (S.target === 'self' || Math.hypot(o.x - u.x, o.y - u.y) <= S.range * TILE) {
+          // the whole squad shares one cooldown per skill
+          sq.cds[o.key] = S.cd;
           u.anim = 0.4;
-          u.order = o.prev && o.prev.type !== 'cast' ? o.prev : { type: 'idle' };
+          const prev = o.prev && o.prev.type !== 'cast' ? o.prev : { type: 'idle' };
+          u.order = prev;
           this.clearPath(u);
+          performSkill(this, u, o.key, o.x, o.y);
+          if (S.eff.k === 'line' || S.eff.k === 'dash') {
+            // the rest of the squad joins in and then carries on with the leader's order
+            for (const m of this.squadUnits(sq)) if (m !== u && !m.dash && !m.charge && m.order.type === 'cast') m.order = prev;
+          }
         } else {
           if (this.ensurePath(u, 'c' + o.x + ',' + o.y, o) && this.step(u, dt, st.speed)) u.pathKey = null;
           this.checkStuck(u, dt, o);
@@ -806,7 +865,7 @@ export class World {
           const bd = BUILDINGS[b.type];
           // extra builders help, with diminishing returns (1, +0.6, +0.36, ...)
           if (b.buildTick !== this.tick) { b.buildTick = this.tick; b.builders = 0; }
-          const rate = Math.pow(0.6, b.builders++);
+          const rate = Math.pow(0.6, b.builders++) * (this.mods(u).build || 1);
           b.progress += (dt * rate) / bd.time;
           b.hp = Math.min(b.maxHp, b.hp + (b.maxHp * 0.9 * dt * rate) / bd.time);
           u.anim = 0.2;
@@ -834,8 +893,9 @@ export class World {
     const o = u.order;
     const rdef = RESOURCES[o.kind];
     const p = this.players[u.owner];
-    const per = Math.round(rdef.per * (p.research.bigbag ? 1.5 : 1));
-    const time = rdef.time * (1 - 0.2 * (p.research.harvest || 0));
+    const m = this.mods(u);
+    const per = Math.round(rdef.per * (p.research.bigbag ? 1.5 : 1) * (m.carry || 1));
+    const time = rdef.time * (1 - 0.2 * (p.research.harvest || 0)) / (m.gather || 1);
     if (o.phase !== 'back') {
       let r = this.ents.get(o.res);
       if (!r || r.kind !== 'res') {
@@ -853,7 +913,8 @@ export class World {
           u.gatherT = 0;
           const amt = Math.min(per, r.amount);
           r.amount -= amt;
-          u.carry = { kind: o.kind, amt };
+          // Pickup: sometimes a double load (the extra doesn't come out of the bush)
+          u.carry = { kind: o.kind, amt: m.pickup && Math.random() < m.pickup ? amt * 2 : amt };
           if (r.amount <= 0) this.remove(r);
           o.phase = 'back';
           this.clearPath(u);
@@ -888,8 +949,11 @@ export class World {
     const isB = u.kind === 'building';
     const def = isB ? BUILDINGS[u.type] : UNITS[u.type];
     const atkType = isB ? def.type : st.type;
-    let dmg = st.dmg * effectiveness(atkType, t.kind === 'unit' ? FORMS[t.form].type : 'building');
+    const eff = effectiveness(atkType, t.kind === 'unit' ? FORMS[t.form].type : 'building');
+    let dmg = st.dmg * eff;
+    const am = isB ? {} : this.mods(u);
     if (t.kind === 'building' && def.siege) dmg *= def.siege;
+    if (t.kind === 'building' && am.siege) dmg *= am.siege;
     const proj = isB ? def.proj : st.proj;
     if (proj) {
       const d = Math.hypot(t.x - u.x, t.y - u.y);
@@ -900,12 +964,22 @@ export class World {
       // long Pokémon (Rayquaza) breathe from their mouth, not their middle
       const mouth = !isB && FORMS[u.form].mouth;
       const x1 = mouth ? u.x + mouth[0] * u.face : u.x, y1 = mouth ? u.y + mouth[1] : u.y - lift;
-      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y, proj });
+      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y, proj, eff, onhit: am.onhit });
       this.fx.push({ k: 'p', x1: x1 | 0, y1: y1 | 0, x2: t.x | 0, y2: (t.y - (isFlying(t) ? 12 : 4)) | 0, d: dur, s: proj });
     } else {
       this.fx.push({ k: 'hit', x: ((u.x + t.x) / 2) | 0, y: ((u.y + t.y) / 2 - 4) | 0 });
-      this.damage(t, dmg, u.id, u.owner);
+      this.damage(t, dmg, u.id, u.owner, { contact: true, type: atkType, eff });
+      if (am.onhit) this.onHit(am.onhit, t, u);
+      // Flame Body / Static: touching them hurts
+      if (t.kind === 'unit' && this.ents.has(t.id) && !isB) {
+        const tm = this.mods(t);
+        if (tm.contact) this.onHit(tm.contact, u, t);
+      }
     }
+  }
+
+  onHit(list, t, src) {
+    for (const h of list) if (Math.random() < h.chance) applyStatus(this, t, h, src.id, src.owner);
   }
 
   updateProjectiles(dt) {
@@ -918,53 +992,24 @@ export class World {
       if (p.splash) {
         const cx = t ? t.x : p.x, cy = t ? t.y : p.y, r = p.splash * TILE;
         this.fx.push({ k: 'boom', x: cx | 0, y: cy | 0, r: r | 0, m: p.proj === 'megabreath' ? 1 : 0 });
-        if (t && t.kind === 'building' && t.owner !== p.owner) this.damage(t, p.dmg, p.src, p.owner);
+        if (t && t.kind === 'building' && t.owner !== p.owner) this.damage(t, p.dmg, p.src, p.owner, { ranged: true });
         this.nearUnits(cx, cy, r + 12, (e) => {
           if (e.owner === p.owner || !this.ents.has(e.id)) return;
           if (Math.hypot(e.x - cx, e.y - cy) > r + e.radius) return;
-          const dmg = p.dmg * effectiveness(p.atkType, FORMS[e.form].type) / effectiveness(p.atkType, t && t.kind === 'unit' ? FORMS[t.form].type : 'building');
-          this.damage(e, e === t ? p.dmg : dmg * 0.7, p.src, p.owner);
+          const ef = effectiveness(p.atkType, FORMS[e.form].type);
+          const dmg = p.dmg * ef / effectiveness(p.atkType, t && t.kind === 'unit' ? FORMS[t.form].type : 'building');
+          this.damage(e, e === t ? p.dmg : dmg * 0.7, p.src, p.owner, { ranged: true, type: p.atkType, eff: ef });
         });
-      } else if (t && t.owner !== p.owner) this.damage(t, p.dmg, p.src, p.owner);
-    }
-  }
-
-  performAbility(u, key, x, y) {
-    const ab = ABILITIES[key];
-    const stage = FORMS[u.form].stage;
-    const r = ab.radius * TILE;
-    if (key === 'thunder') {
-      const dmg = ab.dmg * (1 + 0.5 * stage) * (1 + 0.15 * this.rlevel(u.owner, 'attack'));
-      this.effects.push({ k: 'thunder', x, y, r, t: ab.delay, owner: u.owner, src: u.id, dmg });
-      this.fx.push({ k: 'zap', x: x | 0, y: y | 0, r: r | 0 });
-    } else if (key === 'heal') {
-      const amt = ab.amount * (1 + 0.3 * stage);
-      this.nearUnits(x, y, r + 8, (e) => {
-        if (e.owner !== u.owner || Math.hypot(e.x - x, e.y - y) > r + e.radius) return;
-        e.hp = Math.min(e.maxHp, e.hp + amt);
-      });
-      this.fx.push({ k: 'healp', x: x | 0, y: y | 0, r: r | 0 });
-    } else if (key === 'sleep') {
-      const dur = ab.dur + stage;
-      this.nearUnits(x, y, r + 8, (e) => {
-        if (e.owner === u.owner || Math.hypot(e.x - x, e.y - y) > r + e.radius) return;
-        e.sleep = UNITS[e.type].limit ? dur / 2 : dur; // legendaries resist
-        e.path = null; e.pathKey = null;
-      });
-      this.fx.push({ k: 'sleep', x: x | 0, y: y | 0, r: r | 0 });
-    } else if (key === 'ascent') {
-      const dmg = ab.dmg * (1 + 0.6 * stage) * (1 + 0.15 * this.rlevel(u.owner, 'attack'));
-      u.ascend = { t: 0, x, y, phase: 'up', dmg, r, m: stage ? 1 : 0 };
-      u.face = x >= u.x ? 1 : -1;
-      u.path = null; u.pathKey = null;
-      this.fx.push({ k: 'ascent', x: u.x | 0, y: u.y | 0, m: stage ? 1 : 0 });
-      this.fx.push({ k: 'mark', x: x | 0, y: y | 0, r: r | 0, d: ab.rise + ab.dive, m: stage ? 1 : 0 });
+      } else if (t && t.owner !== p.owner) {
+        this.damage(t, p.dmg, p.src, p.owner, { ranged: true, type: p.atkType, eff: p.eff });
+        if (p.onhit && this.ents.has(t.id)) this.onHit(p.onhit, t, { id: p.src, owner: p.owner });
+      }
     }
   }
 
   // Dragon Ascent: rocket up off the top of the screen, reappear above the target, dive, impact.
   updateAscent(u, dt) {
-    const ab = ABILITIES.ascent, a = u.ascend;
+    const ab = ASCENT, a = u.ascend;
     const SKY = 280;
     a.t += dt;
     u.moving = true;
@@ -995,7 +1040,7 @@ export class World {
       const push = 10 * (1 - d / (a.r + e.radius)) + 2, ux = d ? (e.x - a.x) / d : 1, uy = d ? (e.y - a.y) / d : 0;
       const nx = e.x + ux * push, ny = e.y + uy * push;
       if (!this.blockedFor(e, nx, ny)) { e.x = nx; e.y = ny; }
-      const got = this.damage(e, a.dmg * effectiveness('dragon', FORMS[e.form].type) * (d < a.r * 0.5 ? 1 : 0.75), u.id, u.owner);
+      const got = this.damage(e, a.dmg * effectiveness('dragon', FORMS[e.form].type) * (d < a.r * 0.5 ? 1 : 0.75), u.id, u.owner, { skill: true, type: 'dragon' });
       drained += got;
       if (got > 0) this.fx.push({ k: 'drain', x1: e.x | 0, y1: (e.y - 6) | 0, id: u.id, d: 0.7, m: a.m });
     });
@@ -1004,7 +1049,7 @@ export class World {
       if (this.edgeDist({ x: a.x, y: a.y, radius: 0 }, b) <= a.r) drained += this.damage(b, a.dmg * 0.6, u.id, u.owner) * 0.5;
     }
     // life steal: Rayquaza heals for part of the damage it dealt
-    const heal = drained * (ABILITIES.ascent.drain || 0);
+    const heal = drained * (a.drain || 0);
     if (heal > 0 && this.ents.has(u.id)) {
       u.hp = Math.min(u.maxHp, u.hp + heal);
       this.fx.push({ k: 'drained', x: u.x | 0, y: u.y | 0, amt: Math.round(heal), m: a.m });
@@ -1017,18 +1062,35 @@ export class World {
       e.t -= dt;
       if (e.t > 0) continue;
       this.effects.splice(i, 1);
-      if (e.k === 'thunder') {
-        this.fx.push({ k: 'bolt', x: e.x | 0, y: e.y | 0, r: e.r | 0 });
-        this.nearUnits(e.x, e.y, e.r + 12, (t) => {
-          if (t.owner === e.owner || !this.ents.has(t.id) || Math.hypot(t.x - e.x, t.y - e.y) > e.r + t.radius) return;
-          this.damage(t, e.dmg * effectiveness('electric', FORMS[t.form].type), e.src, e.owner);
-        });
-      }
+      if (e.k === 'skill') resolveArea(this, e);
     }
   }
 
-  damage(t, dmg, srcId, srcOwner) {
-    if (t.kind === 'unit') dmg *= 1 - 0.12 * this.rlevel(t.owner, 'defense');
+  // info: { ranged, contact, type, eff, skill, dot } describes the hit for passives like Delta Stream or Thick Fat
+  damage(t, dmg, srcId, srcOwner, info = {}) {
+    if (t.kind === 'unit') {
+      dmg *= 1 - 0.12 * this.rlevel(t.owner, 'defense');
+      const m = this.mods(t);
+      if (m.dodge && !info.skill && !info.dot && Math.random() < m.dodge) {
+        this.fx.push({ k: 'miss', x: t.x | 0, y: (t.y - 10) | 0 });
+        return 0;
+      }
+      if (m.armor) dmg *= m.armor;
+      if (info.ranged && m.rangedArmor) dmg *= m.rangedArmor;
+      if (info.type && m.resist && m.resist[info.type]) dmg *= m.resist[info.type];
+      if (m.solid && info.eff > 1) dmg *= m.solid;
+      if (m.stamina && !info.dot) {
+        // Stamina: every hit hardens the defense a little more (fades out of combat)
+        if (this.time - (t.lastCombat ?? -99) > 4) t.stam = 0;
+        t.stam = Math.min(m.stamina, (t.stam || 0) + 1);
+        dmg *= 1 - 0.06 * t.stam;
+      }
+      if (m.sturdy && dmg >= t.hp && t.hp > 1 && this.time - (t.sturdyT ?? -999) > m.sturdy) {
+        t.sturdyT = this.time;
+        dmg = t.hp - 1;
+        this.fx.push({ k: 'sturdy', x: t.x | 0, y: (t.y - 12) | 0 });
+      }
+    }
     const dealt = Math.min(dmg, Math.max(0, t.hp));
     t.hp -= dmg;
     t.lastCombat = this.time;
@@ -1052,7 +1114,7 @@ export class World {
       this.notify(t.owner, t.kind === 'building' ? 'Your base is under attack!' : 'Your Pokémon are under attack!', 'alert', t.x, t.y);
     }
     // retaliate
-    if (t.kind === 'unit' && src && t.order.type === 'idle' && this.canHit(t, src)) {
+    if (t.kind === 'unit' && src && src.owner !== t.owner && t.order.type === 'idle' && this.canHit(t, src)) {
       t.order = { type: 'attack', target: src.id, auto: true, home: { x: t.x, y: t.y } };
     }
     if (t.hp <= 0) {
@@ -1145,6 +1207,8 @@ export class World {
   // Refill squads that lost members once they've been out of combat for a moment.
   updateSquads(dt) {
     for (const sq of [...this.squads.values()]) {
+      for (const k in sq.cds) if ((sq.cds[k] -= dt) <= 0) delete sq.cds[k];
+      if ((sq.scan -= dt) <= 0) { sq.scan = 0.5; this.squadSkills(sq); }
       if (sq.members.length >= sq.size) { sq.rT = 0; sq.warned = false; continue; }
       const ms = this.squadUnits(sq);
       const lead = ms[0];
@@ -1164,6 +1228,31 @@ export class World {
       u.evoReady = sq.evoReady;
       if (['move', 'attack', 'idle'].includes(lead.order.type)) u.order = { ...lead.order };
       this.fx.push({ k: 'reinforce', x: u.x | 0, y: u.y | 0 });
+    }
+  }
+
+  // Auto-cast ready active skills and spread auras, twice a second per squad.
+  squadSkills(sq) {
+    const lead = this.leaderOf(sq);
+    if (!lead) return;
+    const pid = sq.owner;
+    const mods = this.mods(lead);
+    if (mods.aura) {
+      for (const a of mods.aura) {
+        const r = a.radius * TILE;
+        this.nearUnits(lead.x, lead.y, r, (f) => {
+          if (f.owner === pid && Math.hypot(f.x - lead.x, f.y - lead.y) <= r) addBuff(f, 'aura', 1, a.mods);
+        });
+      }
+    }
+    const p = this.players[pid];
+    if (!(sq.auto || p.ai) || lead.order.type === 'cast' || lead.ascend || lead.dash || lead.charge || lead.sleep > 0 || lead.stun > 0) return;
+    for (const k of this.activeSkills(lead)) {
+      if (sq.cds[k] > 0 || !this.rlevel(pid, skillResearch(k))) continue;
+      const t = autoTarget(this, sq, lead, k);
+      if (!t) continue;
+      this.startCast(lead, k, t.x, t.y);
+      return;
     }
   }
 
@@ -1201,6 +1290,13 @@ export class World {
       for (const b of this.buildingsOf(pid)) { b.maxHp = Math.round(b.maxHp * 1.5); b.hp *= 1.5; }
     }
     if (key === 'martplus') this.recount();
+    if (r.skill) {
+      // HP passives apply to Pokémon already on the field
+      for (const u of this.unitsOf(pid)) {
+        const mx = this.stats(u).maxHp;
+        if (mx !== u.maxHp) { u.hp *= mx / u.maxHp; u.maxHp = mx; }
+      }
+    }
     // Pokémon that already have the XP evolve right away
     for (const u of this.unitsOf(pid)) if (!u.sq) this.tryEvolve(u);
     for (const sq of [...this.squads.values()]) if (sq.owner === pid) this.tryEvolveSquad(sq);
@@ -1350,9 +1446,11 @@ export class World {
           (x.carry.kind === 'crystal' && x.carry.amt ? 8 : 0) | (x.order.type === 'idle' ? 16 : 0) |
           (x.order.type === 'gather' ? 32 : 0) | (x.order.type === 'build' ? 64 : 0) | (x.order.type === 'attack' ? 128 : 0) |
           (x.sleep > 0 ? 256 : 0) | (x.evoReady ? 512 : 0) | (x.order.type === 'cast' ? 1024 : 0) |
-          (x.ascend ? (x.ascend.phase === 'up' ? 2048 : 4096) : 0);
+          (x.ascend ? (x.ascend.phase === 'up' ? 2048 : 4096) : 0) | (x.burn ? 8192 : 0) | (x.poison ? 16384 : 0) |
+          (x.stun > 0 ? 32768 : 0) | (x.slow ? 65536 : 0) | (x.buffs && x.buffs.some((b) => b.key !== 'aura') ? 131072 : 0) |
+          (x.charge ? 262144 : 0) | (x.dash ? 524288 : 0) | (x.buffs && x.buffs.some((b) => b.key === 'protect') ? 1048576 : 0);
         e.push([0, x.id, UNIT_KEYS.indexOf(x.type), x.owner, r1(x.x), r1(x.y), Math.ceil(x.hp), x.maxHp,
-          FORM_KEYS.indexOf(x.form), Math.floor(x.xp), flags, x.face, x.acd > 0 ? r1(x.acd) : 0, x.lift ? Math.round(x.lift) : 0, x.sq || 0]);
+          FORM_KEYS.indexOf(x.form), Math.floor(x.xp), flags, x.face, 0, x.lift ? Math.round(x.lift) : 0, x.sq || 0]);
       } else if (x.kind === 'building') {
         e.push([1, x.id, BUILDING_KEYS.indexOf(x.type), x.owner, x.tx, x.ty, Math.ceil(x.hp), x.maxHp,
           x.built ? 1 : Math.round(x.progress * 1000) / 1000,
@@ -1366,12 +1464,15 @@ export class World {
       p: this.players.map((p) => [Math.floor(p.b), Math.floor(p.c), p.pop, p.cap, p.research,
         p.alive ? 1 : 0, p.stats.trained, p.stats.killed, p.stats.lost, p.stats.gathered]),
       e,
-      q: [...this.squads.values()].map((q) => [q.id, q.owner, UNIT_KEYS.indexOf(q.type), FORM_KEYS.indexOf(q.form), Math.floor(q.xp), q.evoReady ? 1 : 0, r1(q.rT)]),
+      q: [...this.squads.values()].map((q) => [q.id, q.owner, UNIT_KEYS.indexOf(q.type), FORM_KEYS.indexOf(q.form), Math.floor(q.xp), q.evoReady ? 1 : 0, r1(q.rT),
+        q.auto ? 1 : 0, Object.fromEntries(Object.entries(q.cds).map(([k, v]) => [k, r1(v)]))]),
+      d: this.tick % 20 === 0 ? this.players.map((p) => p.deck) : undefined,
     };
   }
 
   applySnapshot(s, viewPid) {
     this.tick = s.tick; this.time = s.time; this.winner = s.winner;
+    if (s.d) s.d.forEach((d, i) => { const p = this.players[i]; if (d && JSON.stringify(d) !== JSON.stringify(p.deck)) { p.deck = d; p.deckKey = JSON.stringify(d); } });
     s.p.forEach((a, i) => {
       const p = this.players[i];
       [p.b, p.c, p.pop, p.cap, p.research] = a;
@@ -1399,7 +1500,8 @@ export class World {
         x.sleep = f & 256 ? 1 : 0;
         x.evoReady = !!(f & 512);
         x.face = a[11];
-        x.acd = a[12];
+        x.burn = f & 8192 ? {} : null; x.poison = f & 16384 ? {} : null; x.stun = f & 32768 ? 1 : 0; x.slow = f & 65536 ? { m: 1 } : null;
+        x.buffed = !!(f & 131072); x.charge = f & 262144 ? {} : null; x.dash = f & 524288 ? {} : null; x.protect = !!(f & 1048576);
         x.lift = a[13] || 0;
         x.ascend = f & 2048 ? { phase: 'up' } : f & 4096 ? { phase: 'down' } : null;
         x.sq = a[14] || 0;
@@ -1418,7 +1520,7 @@ export class World {
     this.squads = new Map();
     for (const a of s.q || []) {
       const type = UNIT_KEYS[a[2]];
-      this.squads.set(a[0], { id: a[0], owner: a[1], type, form: FORM_KEYS[a[3]], size: squadSize(type), members: [], xp: a[4], evoReady: !!a[5], rT: a[6] });
+      this.squads.set(a[0], { id: a[0], owner: a[1], type, form: FORM_KEYS[a[3]], size: squadSize(type), members: [], xp: a[4], evoReady: !!a[5], rT: a[6], auto: !!a[7], cds: a[8] || {} });
     }
     for (const e of this.ents.values()) {
       const sq = e.kind === 'unit' && e.sq && this.squads.get(e.sq);

@@ -85,28 +85,27 @@ run(w, 3);
 const hurt = clump.filter((u) => u.hp < u.maxHp || !w.ents.has(u.id)).length;
 ok(hurt >= 3, `Dragon Breath splash hit ${hurt}/4 enemies`);
 
-// special moves
-w.issue(0, { c: 'research', id: lab.id, key: 'move_sleep' });
-w.issue(0, { c: 'research', id: lab.id, key: 'move_thunder' });
-run(w, 90);
-const bulb = w.addUnit('bulbasaur', 0, 20 * TILE, 30 * TILE);
-const pika = w.addUnit('pikachu', 0, 20 * TILE, 31 * TILE);
+// skills: researched at the Lab, cast by a squad (auto-cast off here so the test aims them)
+for (const k of ['sleeppowder', 'thunder', 'healpulse', 'ascent']) P.research['sk_' + k] = 1;
+const bsq = w.addSquad('bulbasaur', 0, 20 * TILE, 30 * TILE); bsq.auto = false;
+const psq = w.addSquad('pikachu', 0, 20 * TILE, 31 * TILE); psq.auto = false;
 const targets = [0, 1, 2].map((i) => w.addUnit('charmander', 1, 24 * TILE + i * 10, 30 * TILE));
 w.buildHash();
-w.issue(0, { c: 'cast', ids: [bulb.id], key: 'sleep', x: 24 * TILE + 10, y: 30 * TILE });
-run(w, 0.2);
+w.issue(0, { c: 'cast', ids: bsq.members, key: 'sleeppowder', x: 24 * TILE + 10, y: 30 * TILE });
+run(w, 0.3);
 ok(targets.every((t) => t.sleep > 0), 'Sleep Powder put all 3 enemies to sleep');
+ok(bsq.cds.sleeppowder > 0, 'the squad shares the Sleep Powder cooldown');
 const before = targets.map((t) => t.hp);
-w.issue(0, { c: 'cast', ids: [pika.id], key: 'thunder', x: 24 * TILE + 10, y: 30 * TILE });
+w.issue(0, { c: 'cast', ids: psq.members, key: 'thunder', x: 24 * TILE + 10, y: 30 * TILE });
 run(w, 1);
 ok(targets.every((t, i) => !w.ents.has(t.id) || t.hp < before[i] - 40), 'Thunder hit the whole group');
-ok(pika.acd > 0, 'Thunder is on cooldown');
-const wart = w.addUnit('squirtle', 0, 20 * TILE, 33 * TILE);
-P.research.move_heal = 1;
-pika.hp = 10; bulb.hp = 10;
-w.issue(0, { c: 'cast', ids: [wart.id], key: 'heal', x: 20 * TILE, y: 31 * TILE });
-run(w, 0.2);
-ok(pika.hp > 40 && bulb.hp > 40, 'Heal Pulse healed nearby allies');
+ok(psq.cds.thunder > 0, 'Thunder is on cooldown');
+const ssq = w.addSquad('squirtle', 0, 20 * TILE, 33 * TILE); ssq.auto = false;
+const hurtM = [...w.squadUnits(psq), ...w.squadUnits(bsq)];
+for (const m of hurtM) m.hp = 10;
+w.issue(0, { c: 'cast', ids: ssq.members, key: 'healpulse', x: 20 * TILE, y: 31 * TILE });
+run(w, 0.3);
+ok(hurtM.filter((m) => m.hp > 40).length >= 5, 'Heal Pulse healed nearby allies');
 
 // snapshot round trip keeps forms, research and flags
 const g = new World({ seed: 99, players: [{}, {}], sim: false });
@@ -115,8 +114,8 @@ const gr = g.ents.get(ray.id);
 ok(gr && gr.form === 'megarayquaza' && g.players[0].research.megastone === 1, 'snapshot keeps forms and research');
 
 // Dragon Ascent: Rayquaza flies up (untargetable), dives onto the target, damages and knocks back
-P.research.move_ascent = 1;
-const rq = w.addUnit('rayquaza', 0, 10 * TILE, 40 * TILE);
+const rsq = w.addSquad('rayquaza', 0, 10 * TILE, 40 * TILE); rsq.auto = false;
+const rq = w.leaderOf(rsq);
 const victims = [0, 1, 2].map((i) => w.addUnit('snorlax', 1, 18 * TILE + i * 22, 40 * TILE));
 w.buildHash();
 const vx = victims.map((v) => v.x);
@@ -133,7 +132,7 @@ while (rq.ascend && guard++ < 100) w.update(0.05);
 ok(!rq.ascend && Math.hypot(rq.x - (18 * TILE + 10), rq.y - 40 * TILE) < 3, 'Rayquaza landed on the target spot');
 ok(victims.every((v) => !w.ents.has(v.id) || v.hp < v.maxHp - 100), 'the dive hit every enemy in the area hard');
 ok(victims.some((v, i) => w.ents.has(v.id) && Math.abs(v.x - vx[i]) > 2), 'enemies were knocked back');
-ok(rq.acd > 0, 'Dragon Ascent is on cooldown');
+ok(rsq.cds.ascent > 0, 'Dragon Ascent is on cooldown');
 
 // all research lives in the Lab; Snorlax is trained at the Gym
 ok(Object.keys(RESEARCH).every((k) => BUILDINGS.lab.research.includes(k)) &&
@@ -150,7 +149,7 @@ ok(reg.hp > reg.maxHp * 0.5 + reg.maxHp * 0.02 * 2, `regenerates out of combat (
 
 // Dragon Ascent life steal
 rq.hp = rq.maxHp * 0.4;
-rq.acd = 0;
+rsq.cds = {};
 const drainT = [0, 1].map((i) => w.addUnit('snorlax', 1, rq.x + 60 + i * 22, rq.y));
 w.buildHash();
 const hpBefore = rq.hp;
@@ -215,6 +214,114 @@ void drainT;
   g3.applySnapshot(JSON.parse(JSON.stringify(w3.snapshot())), 0);
   const gq = [...g3.squads.values()].find((q) => q.type === 'squirtle');
   ok(gq && gq.members.length === 4 && g3.ents.get(gq.members[0]).sq === gq.id, 'snapshot carries squads to the guest');
+}
+
+// skill engine: passives, statuses, every active type, auto-cast
+{
+  const w4 = new World({ seed: 11, players: [{}, {}] });
+  const A = w4.players[0], B = w4.players[1];
+  A.noFog = B.noFog = true;
+  const at = (x, y) => ({ x: x * TILE, y: y * TILE });
+  const sq = (type, pid, x, y) => { const q = w4.addSquad(type, pid, x * TILE, y * TILE); q.auto = false; return q; };
+  const dummy = (pid, x, y, type = 'snorlax') => w4.addUnit(type, pid, x * TILE, y * TILE);
+  ok(w4.researchBlock(0, 'sk_solarpower') === 'Not in your deck', 'skills outside the deck cannot be researched');
+  ok(!w4.researchBlock(0, 'sk_flamethrower'), 'deck skills can be researched');
+  // passive: Shell Armor cuts damage once researched
+  const sh = sq('squirtle', 0, 30, 10);
+  const m0 = w4.leaderOf(sh);
+  const hp0 = m0.hp; w4.damage(m0, 20, 0, 1); const plain = hp0 - m0.hp;
+  A.research.sk_shellarmor = 1;
+  const hp1 = m0.hp; w4.damage(m0, 20, 0, 1); const armored = hp1 - m0.hp;
+  ok(Math.abs(armored - plain * 0.8) < 0.01, `Shell Armor: ${plain} -> ${armored.toFixed(1)} damage`);
+  // passive: Delta Stream only cuts ranged damage
+  const rq = w4.leaderOf(sq('rayquaza', 0, 40, 10));
+  A.research.sk_deltastream = 1;
+  let h = rq.hp; w4.damage(rq, 100, 0, 1, { ranged: true }); const ranged = h - rq.hp;
+  h = rq.hp; w4.damage(rq, 100, 0, 1, { contact: true }); const melee = h - rq.hp;
+  ok(Math.abs(ranged - 60) < 0.01 && Math.abs(melee - 100) < 0.01, `Delta Stream: ranged ${ranged}, melee ${melee}`);
+  // passive HP boost applies to workers already on the field
+  const wk = w4.unitsOf(0).find((u) => u.type === 'machop');
+  const wmax = wk.maxHp;
+  w4.completeResearch(0, 'sk_bulkup');
+  ok(wk.maxHp === Math.round(wmax * 1.6), `Bulk Up raised worker HP ${wmax} -> ${wk.maxHp}`);
+  // line: Flamethrower burns
+  A.research.sk_flamethrower = 1;
+  const ch = sq('charmander', 0, 10, 30);
+  const v1 = dummy(1, 14, 30);
+  w4.buildHash();
+  const vh = v1.hp;
+  w4.issue(0, { c: 'cast', ids: ch.members, key: 'flamethrower', x: v1.x, y: v1.y });
+  run(w4, 0.2);
+  ok(v1.hp < vh - 40 && v1.burn, `Flamethrower hit (${Math.round(vh - v1.hp)}) and burned`);
+  const vb = v1.hp; run(w4, 2.5);
+  ok(v1.hp < vb, 'burn deals damage over time');
+  // cone: Dragon Breath
+  A.research.sk_dragonbreath = 1;
+  const v2 = [0, 1, 2].map((i) => dummy(1, 44 + i * 0.6, 10 + (i - 1) * 0.8));
+  w4.buildHash();
+  const v2h = v2.map((v) => v.hp);
+  w4.issue(0, { c: 'cast', ids: [rq.id], key: 'dragonbreath', x: 45 * TILE, y: 10 * TILE });
+  run(w4, 0.2);
+  ok(v2.every((v, i) => v.hp < v2h[i] - 40), 'Dragon Breath hit a whole group in a cone');
+  // zone: Fire Spin keeps burning
+  A.research.sk_firespin = 1;
+  ch.cds = {};
+  const v3 = dummy(1, 12, 34);
+  v3.stun = 10; // hold still in the fire
+  w4.buildHash();
+  const v3h = v3.hp;
+  w4.issue(0, { c: 'cast', ids: ch.members, key: 'firespin', x: v3.x, y: v3.y });
+  run(w4, 4);
+  ok(v3.hp < v3h - 30, `Fire Spin burned for several seconds (${Math.round(v3h - v3.hp)})`);
+  // dash: Rollout carries the squad into the enemy
+  A.research.sk_rollout = 1;
+  const gd = sq('geodude', 0, 20, 50);
+  const v4 = dummy(1, 25, 50);
+  w4.buildHash();
+  const v4h = v4.hp, gx = w4.leaderOf(gd).x;
+  w4.issue(0, { c: 'cast', ids: gd.members, key: 'rollout', x: v4.x, y: v4.y });
+  run(w4, 1);
+  ok(w4.leaderOf(gd).x > gx + 50 && v4.hp < v4h, 'Rollout dashed into the enemy and hit it');
+  // buff: Protect
+  A.research.sk_protect = 1;
+  A.deck.slots.find((x) => x.line === 'squirtle').skills = ['healpulse', 'protect', 'shellarmor'];
+  A.deckKey = 'custom';
+  w4.issue(0, { c: 'cast', ids: sh.members, key: 'protect', x: 0, y: 0 });
+  run(w4, 0.1);
+  const pm = w4.leaderOf(sh);
+  h = pm.hp; w4.damage(pm, 20, 0, 1);
+  ok(Math.abs((h - pm.hp) - 20 * 0.8 * 0.35) < 0.01, 'Protect cut damage by 65% (with Shell Armor)');
+  // status: Thunder Wave paralyzes (stunned units don't attack)
+  A.research.sk_thunderwave = 1;
+  const pk = sq('pikachu', 0, 50, 40);
+  const v5 = dummy(1, 54, 40, 'charmander');
+  w4.buildHash();
+  w4.issue(0, { c: 'cast', ids: pk.members, key: 'thunderwave', x: v5.x, y: v5.y });
+  run(w4, 0.2);
+  ok(v5.stun > 1, 'Thunder Wave paralyzed the target');
+  // immunity: Snorlax with Immunity ignores sleep
+  B.research.sk_immunity = 1;
+  B.deck.slots.find((x) => x.line === 'snorlax').skills = ['bodyslam', 'rest', 'immunity'];
+  B.deckKey = 'custom';
+  const sn = dummy(1, 56, 40);
+  applyStatusTest(w4, sn);
+  // auto-cast: a squad with AUTO on uses its skill by itself
+  A.research.sk_swift = 1;
+  const ev = w4.addSquad('eevee', 0, 30 * TILE, 55 * TILE);
+  const v6 = [0, 1].map((i) => dummy(1, 33, 55 + i * 0.5, 'charmander'));
+  w4.buildHash();
+  run(w4, 2);
+  ok(ev.cds.swift > 0, 'auto-cast fired Swift on its own');
+  void at;
+}
+function applyStatusTest(w, u) {
+  w.buildHash();
+  u.sleep = 0;
+  const q = w.addSquad('bulbasaur', 0, u.x - 40, u.y); q.auto = false;
+  w.players[0].research.sk_sleeppowder = 1;
+  w.issue(0, { c: 'cast', ids: q.members, key: 'sleeppowder', x: u.x, y: u.y });
+  run(w, 0.3);
+  ok(!(u.sleep > 0), 'Immunity blocks Sleep Powder');
 }
 
 // destroying the last Pokémon Center ends the game, even if other buildings remain

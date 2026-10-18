@@ -1,5 +1,5 @@
 // Game controller: main loop, touch/mouse input, selection, HUD panel, networking glue.
-import { TICK, TILE, UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, EVO_XP, TYPE_COLORS, researchCost, researchTime, squadSize, squadPop } from './config.js';
+import { TICK, TILE, UNITS, FORMS, BUILDINGS, RESEARCH, SKILLS, EVO_XP, TYPE_COLORS, researchCost, researchTime, squadSize, squadPop, skillResearch, researchLines } from './config.js';
 import { World, isFlying } from './world.js';
 import { AI } from './ai.js';
 import { Renderer } from './render.js';
@@ -150,8 +150,8 @@ export class Game {
     if (this.placing) this.placing.ok = W.canPlace(this.placing.type, this.placing.tx, this.placing.ty, this.pid);
     let target = null;
     if (this.casting && this.castPos) {
-      const ab = ABILITIES[this.casting];
-      target = { x: this.castPos.x, y: this.castPos.y, r: ab.radius * TILE, color: this.casting === 'heal' ? '#6eff8c' : this.casting === 'sleep' ? '#ff9ad8' : '#fff36b' };
+      const S = SKILLS[this.casting];
+      target = { x: this.castPos.x, y: this.castPos.y, r: (S.eff.radius || 1) * TILE, color: S.target === 'ally' ? '#6eff8c' : TYPE_COLORS[S.type] || '#fff36b' };
     }
     this.renderer.draw(alpha, now, { selection: this.selection, ghost: this.placing, box: this.box, target });
     if (now - this.uiT > 120) { this.uiT = now; this.updateHud(); }
@@ -208,6 +208,10 @@ export class Game {
       else if (f.k === 'quake') { sfx('quake'); r.shake(performance.now(), f.m ? 11 : 9); }
       else if (f.k === 'hit') sfx('hit');
       else if (f.k === 'die') sfx('die');
+      else if (f.k === 'cast') sfx('skill');
+      else if (f.k === 'sk_hit') { sfx(f.s === 'thunder' ? 'zap' : 'boom'); if (f.s === 'thunder' || f.s === 'rockslide') r.shake(performance.now(), 2.5); }
+      else if (f.k === 'beam' || f.k === 'cone') sfx('beam');
+      else if (f.k === 'trail') sfx('whoosh');
     }
   }
 
@@ -252,6 +256,7 @@ export class Game {
     this.forceMove = false;
     this.casting = null;
     this.page = 0;
+    this.labCat = null;
     this.cancelPlacement();
     if (ids.length) sfx('select');
   }
@@ -676,7 +681,7 @@ export class Game {
 
   lbl(text) {
     const plain = text.replace(/<[^>]+>/g, '');
-    return `<span class="lbl${plain.length > 6 ? ' sm' : ''}">${text}</span>`;
+    return `<span class="lbl${plain.length > 10 ? ' sm xs' : plain.length > 6 ? ' sm' : ''}">${text}</span>`;
   }
 
   researchIcon(key) {
@@ -708,13 +713,15 @@ export class Game {
     if (units.length) {
       const workers = units.some((u) => UNITS[u.type].worker);
       const u = units[0];
-      const abil = [...new Set(units.map((x) => FORMS[x.form].ability).filter(Boolean))];
+      const abil = [...new Set(units.filter((x) => x.sq).flatMap((x) => W.activeSkills(x)))];
+      const sqs = [...new Set(units.map((x) => x.sq).filter(Boolean))].map((id) => W.squads.get(id)).filter(Boolean);
+      const autoOn = sqs.length && sqs.every((q) => q.auto);
       const groups = this.groups(units);
       const one = groups.length === 1;
       const sq = one ? W.squadOf(u) : null;
       const evoChoices = one && u.evoReady ? (FORMS[u.form].next || []).filter((n) => P.research[n.r]) : [];
       sig = `U|${units.map((x) => x.id + ':' + x.form).join(',')}|${this.buildMenu}|${this.forceMove}|${this.casting}|${this.page}|` +
-        `${abil.map((k) => k + P.research[ABILITIES[k].research]).join(',')}|${evoChoices.map((n) => n.to).join(',')}|` +
+        `${abil.map((k) => k + P.research[skillResearch(k)]).join(',')}|${autoOn}|${evoChoices.map((n) => n.to).join(',')}|` +
         `${workers && this.buildMenu ? Object.keys(BUILDINGS).map((k) => +afford(BUILDINGS[k].cost) + '' + +W.reqMet(pid, BUILDINGS[k].req)).join('') : ''}|` +
         `${one ? JSON.stringify(P.research) : ''}|${groups.length}`;
       if (sig === this.panelSig) return this.updateDynamic(ents);
@@ -735,7 +742,8 @@ export class Game {
           <div class="meter"><i data-bind="hp"></i></div>
           ${nexts.length ? `<div class="meter xp"><i data-bind="xp"></i></div>` : ''}
           ${evoTxt ? `<div class="sub">${evoTxt}</div>` : `<div class="desc">${def.desc}</div>`}
-          <div class="sub">ATK ${Math.round(st.dmg)} · RNG ${(st.range / TILE).toFixed(1)}${isFlying(u) ? ' · FLYING' : ''} · <span data-bind="status"></span></div></div>`;
+          <div class="sub">ATK ${Math.round(st.dmg)} · RNG ${(st.range / TILE).toFixed(1)}${isFlying(u) ? ' · FLYING' : ''} · <span data-bind="status"></span></div>
+          ${this.skillRow(u)}</div>`;
       } else {
         info = `<div class="multi">${groups.slice(0, 24).map((g) => `<button class="mini" data-a="only" data-v="${g[0].id}"><img src="assets/units/${g[0].form}.png" alt="">${g[0].sq ? `<i class="cnt" data-sqn="${g[0].sq}"></i>` : ''}<b data-hpid="${g[0].sq ? 's' + g[0].sq : g[0].id}"></b></button>`).join('')}</div>`;
       }
@@ -751,10 +759,11 @@ export class Game {
         for (const n of evoChoices)
           items.push(`<button class="cmd active" data-a="evolve" data-v="${n.to}"><img src="assets/units/${n.to}.png" alt="">${this.lbl(FORMS[n.to].name.toUpperCase())}</button>`);
         for (const k of abil) {
-          const ab = ABILITIES[k];
-          const known = P.research[ab.research];
-          items.push(`<button class="cmd${known ? '' : ' locked off'}${this.casting === k ? ' active' : ''}" data-a="cast" data-v="${k}"><img src="assets/icons/${ab.icon}.png" alt="">${this.lbl(ab.name.toUpperCase())}<span class="cost" data-bind="cd-${k}"></span></button>`);
+          const S = SKILLS[k];
+          const known = P.research[skillResearch(k)];
+          items.push(`<button class="cmd${known ? '' : ' locked off'}${this.casting === k ? ' active' : ''}" data-a="cast" data-v="${k}"><img src="assets/icons/${k}.png" alt="">${this.lbl(S.name.toUpperCase())}<span class="cost" data-bind="cd-${k}"></span></button>`);
         }
+        if (abil.length) items.push(`<button class="cmd auto${autoOn ? ' active' : ''}" data-a="auto"><span class="lbl">AUTO<br>${autoOn ? 'ON' : 'OFF'}</span></button>`);
         items.push('<button class="cmd" data-a="stop"><span class="lbl">STOP</span></button>');
         items.push(`<button class="cmd${this.forceMove ? ' active' : ''}" data-a="force"><span class="lbl">MOVE<br>ONLY</span></button>`);
         if (workers) items.push('<button class="cmd" data-a="build"><img src="assets/buildings/center.png" alt=""><span class="lbl">BUILD</span></button>');
@@ -768,7 +777,7 @@ export class Game {
         for (const k of def.trains || []) opts.push(+afford(UNITS[k].cost) + '' + +W.reqMet(pid, UNITS[k].req));
         for (const k of def.research || []) opts.push(k + (P.research[k] || 0) + +afford(researchCost(k, P.research[k] || 0)) + (W.researchBlock(pid, k) || ''));
       }
-      sig = `B|${b.id}|${b.built}|${b.queue.map((q) => q.u || q.r).join(',')}|${opts.join('')}|${this.page}`;
+      sig = `B|${b.id}|${b.built}|${b.queue.map((q) => q.u || q.r).join(',')}|${opts.join('')}|${this.page}|${this.labCat}`;
       if (sig === this.panelSig) return this.updateDynamic(ents);
       const q = b.queue.map((x, i) => `<button class="mini" data-a="unq" data-v="${i}">${x.u ? `<img src="assets/units/${x.u}.png" alt="">` : this.researchIcon(x.r) || '<span class="lbl">R</span>'}${i === 0 ? '<b data-bind="qprog" style="background:#6ec6ff"></b>' : ''}</button>`).join('');
       info = `<div class="portrait"><img src="assets/buildings/${b.type}.png" alt=""></div>
@@ -785,7 +794,7 @@ export class Game {
           const n = squadSize(k);
           items.push(`<button class="cmd${!afford(d.cost) ? ' off' : ''}${locked ? ' locked' : ''}" data-a="train" data-v="${k}"><img src="assets/units/${k}.png" alt="">${n > 1 ? `<i class="cnt">×${n}</i>` : ''}${this.lbl(d.name.toUpperCase())}${this.costHtml(d.cost)}</button>`);
         }
-        for (const k of def.research || []) {
+        for (const k of this.researchList(b)) {
           const r = RESEARCH[k];
           const lvl = P.research[k] || 0;
           if (lvl >= (r.levels || 1)) continue;
@@ -798,6 +807,16 @@ export class Game {
       }
       const tail = [];
       if (own && !b.built) tail.push('<button class="cmd" data-a="cancelb"><span class="lbl">CANCEL<br>BUILD</span></button>');
+      if (own && b.built && b.type === 'lab' && !this.labCat) {
+        // the Lab first shows its pages: general upgrades, then one per Pokémon in the deck
+        items.length = 0;
+        for (const c of this.labCats()) {
+          const n = this.researchList(b, c).filter((k) => !W.researchBlock(pid, k)).length;
+          const img = c === 'general' ? '<img src="assets/buildings/lab.png" alt="">' : `<img src="assets/units/${c}.png" alt="">`;
+          items.push(`<button class="cmd${n ? '' : ' off'}" data-a="labcat" data-v="${c}">${img}${this.lbl(c === 'general' ? 'GENERAL' : FORMS[c].name.toUpperCase())}${n ? `<i class="cnt">${n}</i>` : ''}</button>`);
+        }
+      }
+      if (b.type === 'lab' && this.labCat) tail.unshift('<button class="cmd" data-a="labback"><span class="lbl">BACK</span></button>');
       tail.push(X);
       cmds = this.paginate(items, tail);
     } else if (ents.length === 1) {
@@ -820,6 +839,25 @@ export class Game {
     $('info').innerHTML = info;
     $('cmds').innerHTML = cmds;
     this.updateDynamic(ents);
+  }
+
+  // Lab pages: general upgrades, then each Pokémon line in the player's deck
+  labCats() { return ['general', ...this.world.players[this.pid].deck.slots.map((s) => s.line)]; }
+  researchList(b, cat = this.labCat) {
+    const def = BUILDINGS[b.type];
+    const all = def.research || [];
+    if (b.type !== 'lab' || !cat) return all;
+    const W = this.world;
+    if (cat === 'general') return all.filter((k) => !researchLines(k).length);
+    return all.filter((k) => researchLines(k).includes(cat) && (!RESEARCH[k].skill || W.loadout(this.pid, cat).includes(RESEARCH[k].skill)));
+  }
+
+  // small icons for a squad's 3 skills (dimmed until researched)
+  skillRow(u) {
+    const W = this.world, P = W.players[this.pid];
+    const ks = W.loadout(u.owner, FORMS[u.form].line);
+    if (!ks.length) return '';
+    return `<div class="skrow">${ks.map((k) => `<span class="sk${P.research[skillResearch(k)] ? '' : ' off'}${SKILLS[k].kind === 'p' ? ' pas' : ''}" title="${SKILLS[k].name}"><img src="assets/icons/${k}.png" alt="">${SKILLS[k].name}</span>`).join('')}</div>`;
   }
 
   updateDynamic(ents) {
@@ -853,7 +891,10 @@ export class Game {
       for (const el of cmds.querySelectorAll('[data-bind^="cd-"]')) {
         const k = el.dataset.bind.slice(3);
         let best = Infinity;
-        for (const u of this.selectedUnits()) if (FORMS[u.form].ability === k) best = Math.min(best, u.acd || 0);
+        for (const sid of this.selSquads) {
+          const q = W.squads.get(sid), lead = q && W.ents.get(q.members[0]);
+          if (lead && W.activeSkills(lead).includes(k)) best = Math.min(best, q.cds[k] || 0);
+        }
         const txt = best === Infinity ? '' : best > 0 ? `${Math.ceil(best)}s` : 'READY';
         if (el.textContent !== txt) el.textContent = txt;
       }
@@ -938,18 +979,32 @@ export class Game {
         break;
       }
       case 'cast': {
-        const ab = ABILITIES[v];
-        if (!W.rlevel(pid, ab.research)) {
-          const at = Object.keys(BUILDINGS).find((k) => (BUILDINGS[k].research || []).includes(ab.research));
-          fail(`Research ${ab.name} at the ${BUILDINGS[at].name} first`);
+        const S = SKILLS[v];
+        if (!W.rlevel(pid, skillResearch(v))) { fail(`Research ${S.name} at the Lab first`); break; }
+        const ready = [...this.selSquads].map((id) => W.squads.get(id)).filter((q) => q && W.ents.get(q.members[0]) && W.activeSkills(W.ents.get(q.members[0])).includes(v) && !(q.cds[v] > 0));
+        if (!ready.length) { fail(`${S.name} is recharging`); break; }
+        this.forceMove = false;
+        if (S.target === 'self') {
+          // self skills (Protect, Roost, Rest...) fire right away
+          const lead = W.ents.get(ready[0].members[0]);
+          this.issue({ c: 'cast', ids: ready[0].members, key: v, x: lead.x, y: lead.y });
+          sfx('order');
           break;
         }
-        if (!units.some((u) => FORMS[u.form].ability === v && (u.acd || 0) <= 0)) { fail(`${ab.name} is recharging`); break; }
         this.casting = this.casting === v ? null : v;
-        this.forceMove = false;
-        if (this.casting) this.toast(`Tap where to use ${ab.name}`);
+        if (this.casting) this.toast(`Tap where to use ${S.name}`);
         break;
       }
+      case 'auto': {
+        const sqs = [...this.selSquads].map((id) => W.squads.get(id)).filter(Boolean);
+        const on = !sqs.every((q) => q.auto);
+        this.issue({ c: 'auto', ids: units.map((u) => u.id), on });
+        for (const q of sqs) q.auto = on; // show it right away (the host confirms)
+        this.toast(on ? 'Skills are used automatically' : 'Auto skills off: tap a skill to use it');
+        break;
+      }
+      case 'labcat': this.labCat = v; this.page = 0; break;
+      case 'labback': this.labCat = null; this.page = 0; break;
       case 'unq': if (b) { this.issue({ c: 'cancel', id: b.id, i: +v }); sfx('order'); } break;
       case 'cancelb': if (b) { this.issue({ c: 'cancel', id: b.id }); this.select([]); } break;
     }

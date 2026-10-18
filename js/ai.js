@@ -1,5 +1,5 @@
 // Computer opponent. Plays through world.issue() just like a human would.
-import { UNITS, FORMS, BUILDINGS, RESEARCH, ABILITIES, TILE, DIFFICULTY, researchCost, effectiveness, squadPop } from './config.js';
+import { UNITS, FORMS, BUILDINGS, RESEARCH, SKILLS, TILE, DIFFICULTY, researchCost, effectiveness, squadPop, skillResearch } from './config.js';
 
 // enemy's most common type -> good counters
 const COUNTER = {
@@ -7,12 +7,12 @@ const COUNTER = {
   electric: ['geodude', 'bulbasaur'], normal: ['geodude', 'charmander'], fighting: ['pidgey', 'charmander'],
   flying: ['geodude', 'pikachu'], rock: ['squirtle', 'bulbasaur'], dragon: ['pikachu', 'geodude'],
 };
-// research the AI wants for each line it owns, in order
+// evolution research the AI wants for each line it owns, in order (skills come from its deck)
 const LINE_RESEARCH = {
-  charmander: ['evo_charmeleon', 'evo_charizard'], squirtle: ['evo_wartortle', 'evo_blastoise', 'move_heal'],
-  bulbasaur: ['evo_ivysaur', 'evo_venusaur', 'move_sleep'], geodude: ['evo_graveler', 'evo_golem'],
-  pidgey: ['evo_pidgeotto', 'evo_pidgeot'], pikachu: ['thunderstone', 'move_thunder'],
-  eevee: ['waterstone', 'thunderstone', 'firestone'], rayquaza: ['megastone', 'move_ascent'],
+  charmander: ['evo_charmeleon', 'evo_charizard'], squirtle: ['evo_wartortle', 'evo_blastoise'],
+  bulbasaur: ['evo_ivysaur', 'evo_venusaur'], geodude: ['evo_graveler', 'evo_golem'],
+  pidgey: ['evo_pidgeotto', 'evo_pidgeot'], pikachu: ['thunderstone'],
+  eevee: ['waterstone', 'thunderstone', 'firestone'], rayquaza: ['megastone'],
 };
 
 export class AI {
@@ -135,8 +135,7 @@ export class AI {
         W.issue(pid, { c: 'train', id: pillar.id, type: 'pidgey' });
     }
 
-    // --- special moves
-    if (this.d.moves) this.useMoves(army);
+    // special moves are auto-cast by the world for every squad
     // Eevees are evolved automatically by the world for AI players
 
     // --- combat
@@ -326,68 +325,24 @@ export class AI {
     // what to research next, by priority
     const wants = [];
     const lines = new Set(army.map((u) => u.type));
-    for (const l of lines) for (const k of LINE_RESEARCH[l] || []) wants.push(k);
+    for (const l of lines) {
+      // skills first (actives only on smarter difficulties), then evolutions
+      const sk = W.loadout(pid, l).filter((k) => this.d.moves || SKILLS[k].kind === 'p');
+      wants.push(sk[0] && skillResearch(sk[0]), ...(LINE_RESEARCH[l] || []).slice(0, 1), ...sk.slice(1).map(skillResearch), ...(LINE_RESEARCH[l] || []).slice(1));
+    }
+    wants.push(...W.loadout(pid, 'machop').map(skillResearch));
     wants.push('harvest', 'attack', 'defense', 'drill', 'bigbag');
     if (this.key === 'hard') wants.push('fortify', 'towerup', 'martplus');
     for (const k of wants) {
-      if (k.startsWith('move_') && !this.d.moves) continue;
-      if (W.researchBlock(pid, k)) continue;
-      const at = blds.find((b) => b.built && (BUILDINGS[b.type].research || []).includes(k) && !b.queue.some((q) => q.r));
+      if (!k || W.researchBlock(pid, k)) continue;
+      const at = blds.find((b) => b.built && (BUILDINGS[b.type].research || []).includes(k) && b.queue.filter((q) => q.r).length < 2);
       if (!at) continue;
       const cost = researchCost(k, W.rlevel(pid, k));
       // keep some money for the army
-      if (me.b < cost.b + 150 || me.c < cost.c + 50) return;
+      if (me.b < cost.b + 100 || me.c < cost.c + 40) return;
       W.issue(pid, { c: 'research', id: at.id, key: k });
-      this.researchT = RESEARCH[k].time * 0.5;
+      this.researchT = RESEARCH[k].time * 0.3;
       return;
-    }
-  }
-
-  useMoves(army) {
-    const W = this.w, pid = this.pid;
-    for (const u of army) {
-      const key = FORMS[u.form].ability;
-      if (!key || u.acd > 0 || u.sleep > 0 || u.order.type === 'cast' || !W.rlevel(pid, ABILITIES[key].research)) continue;
-      const ab = ABILITIES[key];
-      const reach = (ab.range + 2) * TILE, r = ab.radius * TILE;
-      if (key === 'heal') {
-        let hurt = 0, sx = 0, sy = 0;
-        W.nearUnits(u.x, u.y, reach, (e) => {
-          if (e.owner === pid && e.hp < e.maxHp * 0.6) { hurt++; sx += e.x; sy += e.y; }
-        });
-        if (hurt >= 2) W.issue(pid, { c: 'cast', ids: [u.id], key, x: sx / hurt, y: sy / hurt });
-      } else {
-        // aim at the densest enemy group in reach
-        let best = null, bn = 1;
-        W.nearUnits(u.x, u.y, reach, (e) => {
-          if (e.owner === pid || UNITS[e.type].worker || e.sleep > 0 || (key === 'thunder' && FORMS[e.form].type === 'rock')) return;
-          let n = 0;
-          W.nearUnits(e.x, e.y, r, (f) => { if (f.owner !== pid && Math.hypot(f.x - e.x, f.y - e.y) <= r) n++; });
-          if (n > bn) { bn = n; best = e; }
-        });
-        let tx = best && best.x, ty = best && best.y;
-        if (key === 'ascent') {
-          // Dragon Ascent: weigh groups by the HP it can drain, and dive on buildings too
-          let bv = 0;
-          const value = (x, y) => {
-            let v = 0;
-            W.nearUnits(x, y, r + 12, (f) => {
-              if (f.owner !== pid && Math.hypot(f.x - x, f.y - y) <= r + f.radius) v += Math.min(f.hp, ab.dmg) / ab.dmg * (UNITS[f.type].worker ? 0.5 : 1);
-            });
-            for (const b of W.buildingsOf(this.enemy)) if (Math.hypot(b.x - x, b.y - y) <= r + b.radius) v += b.type === 'center' ? 1.5 : 0.8;
-            return v;
-          };
-          W.nearUnits(u.x, u.y, reach, (e) => { if (e.owner !== pid) { const v = value(e.x, e.y); if (v > bv) { bv = v; tx = e.x; ty = e.y; } } });
-          for (const b of W.buildingsOf(this.enemy)) {
-            if (Math.hypot(b.x - u.x, b.y - u.y) > reach) continue;
-            const v = value(b.x, b.y);
-            if (v > bv) { bv = v; tx = b.x; ty = b.y; }
-          }
-          // when badly hurt, the life steal is worth a smaller target
-          if (bv < (u.hp < u.maxHp * 0.5 ? 1 : 2)) continue;
-        } else if (!best) continue;
-        W.issue(pid, { c: 'cast', ids: [u.id], key, x: tx, y: ty });
-      }
     }
   }
 
