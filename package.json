@@ -5,7 +5,7 @@
   "description": "Non-profit fan-made mobile RTS. Static site: no build step needed.",
   "scripts": {
     "start": "npx http-server -c-1 .",
-    "test": "node tests/features.mjs && node tests/sim.mjs 1234 normal hard",
+    "test": "node tools/stamp.mjs --check && node tests/features.mjs && node tests/sim.mjs 1234 normal hard",
     "assets": "python3 tools/make_assets.py"
   }
 }
