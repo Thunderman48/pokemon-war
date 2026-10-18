@@ -438,10 +438,12 @@ function applyStatusTest(w, u) {
   const gq = sq('gastly', 0, 40, 50);
   const dummy = w7.addUnit('snorlax', 1, 44 * TILE, 50 * TILE); dummy.stun = 30;
   w7.buildHash();
+  for (const m of w7.squadUnits(gq)) m.cd = 99;
   w7.issue(0, { c: 'cast', ids: gq.members, key: 'curse', x: dummy.x, y: dummy.y });
   run(w7, 0.2);
   let h = dummy.hp; w7.damage(dummy, 20, 0, 0);
   ok(Math.abs((h - dummy.hp) - 27) < 0.01, 'Curse: +35% damage taken');
+  for (const m of w7.squadUnits(gq)) m.cd = 99; // no regular attacks muddying the numbers
   h = dummy.hp;
   w7.issue(0, { c: 'cast', ids: gq.members, key: 'nightshade', x: dummy.x, y: dummy.y });
   run(w7, 0.2);

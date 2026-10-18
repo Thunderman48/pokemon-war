@@ -197,32 +197,32 @@ Object.assign(FORMS, {
 
 export const BUILDINGS = {
   center: {
-    name: 'Pokémon Center', short: 'CENTER', w: 3, h: 3, hp: 1500, cost: { b: 400, c: 0 }, time: 60, pop: 15, sight: 8,
+    name: 'Pokémon Center', short: 'CENTER', w: 3, h: 3, hp: 2600, cost: { b: 400, c: 0 }, time: 60, pop: 15, sight: 8,
     trains: ['machop'], dropoff: true, heal: true,
     desc: 'HQ. Trains workers, stores resources, heals nearby Pokémon.',
   },
   mart: {
-    name: 'Poké Mart', short: 'MART', w: 2, h: 2, hp: 450, cost: { b: 100, c: 0 }, time: 20, pop: 15, sight: 5,
+    name: 'Poké Mart', short: 'MART', w: 2, h: 2, hp: 700, cost: { b: 100, c: 0 }, time: 20, pop: 15, sight: 5,
     desc: '+15 supply (+20 with Mart Expansion).',
   },
   gym: {
-    name: 'Gym', short: 'GYM', w: 3, h: 3, hp: 1000, cost: { b: 150, c: 0 }, time: 35, sight: 6,
+    name: 'Gym', short: 'GYM', w: 3, h: 3, hp: 1600, cost: { b: 150, c: 0 }, time: 35, sight: 6,
     trains: [], // the fighters in your deck (filled in below)
     desc: 'Trains the battle Pokémon in your deck. Pikachu and Snorlax need a Lab.',
   },
   lab: {
-    name: 'Lab', short: 'LAB', w: 3, h: 3, hp: 800, cost: { b: 150, c: 100 }, time: 40, sight: 6, req: 'gym',
+    name: 'Lab', short: 'LAB', w: 3, h: 3, hp: 1300, cost: { b: 150, c: 100 }, time: 40, sight: 6, req: 'gym',
     // every research in the game lives here (filled in below); the panel groups it by deck slot
     research: [],
     desc: 'All research: general upgrades, evolutions and every skill, grouped by Pokémon. Unlocks Pikachu and Snorlax.',
   },
   tower: {
-    name: 'Tower', short: 'TOWER', w: 2, h: 2, hp: 550, cost: { b: 100, c: 50 }, time: 30, sight: 8, req: 'gym',
-    dmg: 12, cd: 1.0, range: 6, type: 'normal', proj: 'ball',
+    name: 'Tower', short: 'TOWER', w: 2, h: 2, hp: 900, cost: { b: 100, c: 50 }, time: 30, sight: 8, req: 'gym',
+    dmg: 18, cd: 1.0, range: 6, type: 'normal', proj: 'ball',
     desc: 'Defensive tower that throws Poké Balls. Hits flyers too.',
   },
   skypillar: {
-    name: 'Sky Pillar', short: 'PILLAR', w: 3, h: 3, hp: 1200, cost: { b: 300, c: 250 }, time: 60, sight: 9, req: 'lab',
+    name: 'Sky Pillar', short: 'PILLAR', w: 3, h: 3, hp: 1900, cost: { b: 300, c: 250 }, time: 60, sight: 9, req: 'lab',
     trains: [], // the legendary in your deck
     desc: 'Trains the legendary Pokémon in your deck. Unlocks legendary research and the Key Stone.',
   },
@@ -608,7 +608,7 @@ export const RES_KEYS = Object.keys(RESOURCES);
 export const RESEARCH_KEYS = Object.keys(RESEARCH);
 
 export const DIFFICULTY = {
-  easy: { think: 2.0, gather: 0.75, workers: 10, firstWave: 10, waveGrow: 2, counter: false, research: 0.4, moves: false, label: 'Easy' },
-  normal: { think: 1.0, gather: 1.0, workers: 15, firstWave: 18, waveGrow: 4, counter: true, research: 1, moves: true, label: 'Normal' },
-  hard: { think: 0.5, gather: 1.3, workers: 19, firstWave: 18, waveGrow: 6, counter: true, research: 1.5, moves: true, label: 'Hard' },
+  easy: { think: 2.0, gather: 0.75, workers: 10, firstWave: 10, waveGrow: 2, firstAttack: 420, counter: false, research: 0.4, moves: false, label: 'Easy' },
+  normal: { think: 1.0, gather: 1.0, workers: 15, firstWave: 18, waveGrow: 4, firstAttack: 300, counter: true, research: 1, moves: true, label: 'Normal' },
+  hard: { think: 0.5, gather: 1.3, workers: 19, firstWave: 18, waveGrow: 6, firstAttack: 210, counter: true, research: 1.5, moves: true, label: 'Hard' },
 };

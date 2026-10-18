@@ -9,56 +9,72 @@ Gather berries and crystals, build up your base, train Pokémon, evolve them in 
 > The Pokémon Company. Pokémon and character names are trademarks of their respective owners.
 > All pixel art in `assets/` is original art made for this project.
 
-## What's new in V2
+## What's new in V3: combat rework
 
-- **Evolution needs research**: Pokémon need battle XP *and* the matching Lab research to evolve
-  (e.g. research Charmeleon, then Charizard). Stones unlock Raichu and Eevee's forms.
-- **New Pokémon**: Eevee (you pick Vaporeon, Jolteon or Flareon), Geodude → Graveler → Golem,
-  Pidgey → Pidgeotto → Pidgeot, and the legendary **Rayquaza → Mega Rayquaza**. Rayquaza is a huge flying dragon
-  whose Dragon Breath hits an area, and you can only have one. Charizard can fly too.
-- **Flying units** fly over trees and water. Close-range fighters (Machop, Snorlax) can't hit them.
-- **New building**: the Sky Pillar trains flying Pokémon and Rayquaza, and unlocks the Mega Stone and Dragon Ascent research.
-- **More research**, all at the Lab: Attack/Defense levels 1–3. Economy: Harvest, Big Bag, Mart Expansion. Buildings: Fortify, Training Drill, Tower Upgrade.
-- **Special moves** you aim with a tap: Thunder (area damage), Heal Pulse (area heal), Sleep Powder (puts enemies to sleep) and Rayquaza's **Dragon Ascent** (rockets into the sky, then dives onto an area, stealing life from everything it hits).
-- More types: Flying, Rock and Dragon.
-- **Passive regeneration**: Pokémon out of combat for 5 seconds heal 2% of their max HP per second.
-- The original game is still playable at `/v1/` (and saved on the `v1` branch).
+- **Squads** (Dawn of War style): battle Pokémon train in squads (4 small Pokémon, 3 Geodude, 2 Snorlax or Duraludon,
+  1 legendary) that move and fight together, share XP and evolve together. Fallen members come back on their own after a
+  few seconds out of combat, for 30% of a member's price. Supply is bigger (200) and a squad holds supply for its full size.
+- **Deck building**: on the DECK screen pick 1 worker, 1 legendary and 6 fighters (no Pokémon twice), and for each one a
+  held item and 3 of its 6 skills. Three decks are saved on your device; bring one into every match (online too).
+- **Skills**: every Pokémon has 6 skills, passive (always on) or active. Each skill is researched at the Lab. Active skills
+  are used automatically when a good target is near; turn AUTO off on a squad to aim them yourself. Burn, poison,
+  paralysis, sleep, slow, knock-back, buffs, debuffs and auras.
+- **Held items**: Mega Stones, Leftovers, Choice Band, Quick Claw, Rocky Helmet, Eviolite, Expert Belt, Focus Sash,
+  Scope Lens, Shell Bell, Amulet Coin.
+- **Mega Evolution**: with the Key Stone researched and its Mega Stone held (Rayquaza needs none), a fully evolved squad's
+  leader can Mega Evolve with the MEGA button: an invincible 2-second transformation, 60 seconds as a Mega with a special
+  effect (Mega Rayquaza's storm darkens the sky and calls down lightning), then a cooldown.
+- **New Pokémon**: Timburr (worker that repairs buildings), Mewtwo (legendary, Mega X or Y), Gastly → Haunter → Gengar,
+  Machop → Machoke → Machamp, Abra → Kadabra → Alakazam, Duraludon → Archaludon (a slow, long-range siege tank with
+  Stamina and Electro Shot). New types: Psychic, Ghost and Steel.
+- The AI brings its own decks, uses skills and Mega Evolution, and waits a while before its first attack (Easy 7 min,
+  Normal 5 min, Hard 3.5 min).
+- V2 is still playable at `/v2/` (and on the `v2` branch), V1 at `/v1/`.
 
 ## Features
 
 - **Classic RTS**: workers, two resources, supply, buildings, tech requirements, research, fog of war.
-- **VS Computer** on Easy, Normal or Hard. The AI researches, evolves, counters your army's types, uses special moves, focus-fires weak or type-weak targets, pulls wounded Pokémon back to heal, gathers its army before attacking and retreats from fights it can't win.
+- **VS Computer** on Easy, Normal or Hard. The AI researches, evolves, counters your army's types, uses skills and Mega
+  Evolution, focus-fires, pulls wounded squads back to heal and refill, gathers its army before attacking and retreats
+  from fights it can't win.
 - **Online 1v1** with a 5-letter room code. Play is peer-to-peer over WebRTC (PeerJS), so no server is needed.
-- **Made for touch**: tap to select and command, drag to scroll, pinch to zoom, long-press to box-select, a minimap, and quick ARMY / IDLE / BASE buttons. Mouse and keyboard also work on desktop.
+- **Made for touch**: tap to select and command, drag to scroll, pinch to zoom, long-press to box-select, a minimap,
+  and quick ARMY / IDLE / BASE buttons. Mouse and keyboard also work on desktop.
 - Can be installed to the home screen (PWA manifest) for fullscreen play.
 
-## Roster
+## Buildings
 
-| Building | Cost (berries / crystals) | Trains | Research |
+| Building | Cost (berries / crystals) | Trains | Notes |
 |---|---|---|---|
-| Pokémon Center | 400 | Machop | |
-| Poké Mart | 100 | | +10 supply |
-| Gym | 150 | Charmander, Squirtle, Bulbasaur, Geodude, Eevee, Pikachu\*, Snorlax\* | |
-| Lab (needs Gym) | 150 / 100 | | **All research**: Attack, Defense, every evolution, stones, special moves, Harvest, Big Bag, Mart Expansion, Fortify, Training Drill, Tower Upgrade, Mega Stone\*\*, Dragon Ascent\*\* |
+| Pokémon Center | 400 | Your deck's worker | Drop-off, heals nearby Pokémon, +15 supply |
+| Poké Mart | 100 | | +15 supply (+20 with Mart Expansion) |
+| Gym | 150 | Your deck's 6 fighters | Pikachu, Abra, Snorlax and Duraludon need a Lab |
+| Lab (needs Gym) | 150 / 100 | | **All research**, in pages: GENERAL and one per Pokémon in your deck |
 | Tower (needs Gym) | 100 / 50 | | Defensive, hits flyers |
-| Sky Pillar (needs Lab) | 300 / 250 | Pidgey, Rayquaza (max 1) | |
+| Sky Pillar (needs Lab) | 300 / 250 | Your deck's legendary (max 1) | Unlocks legendary skills and the Key Stone |
 
-\*Pikachu and Snorlax need a Lab. \*\*Mega Stone and Dragon Ascent also need a Sky Pillar.
+## Pokémon
 
-| Line | Type | Notes |
-|---|---|---|
-| Machop | Fighting | Worker |
-| Charmander → Charmeleon → Charizard | Fire | Ranged. Charizard flies |
-| Squirtle → Wartortle → Blastoise | Water | Tough brawler, Heal Pulse |
-| Bulbasaur → Ivysaur → Venusaur | Grass | Long range, Sleep Powder |
-| Geodude → Graveler → Golem | Rock | Tank, strong vs Fire & Flying |
-| Eevee → Vaporeon / Jolteon / Flareon | Normal → Water / Electric / Fire | You choose. Vaporeon heals, Jolteon uses Thunder |
-| Pikachu → Raichu | Electric | Fast, Thunder |
-| Pidgey → Pidgeotto → Pidgeot | Flying | Fast flyer |
-| Snorlax | Normal | Huge tank, double damage to buildings |
-| Rayquaza → Mega Rayquaza | Dragon | Legendary flyer, area Dragon Breath, only one |
+| Class | Line | Type | Squad | Mega |
+|---|---|---|---|---|
+| Worker | Machop | Fighting | 1 | |
+| Worker | Timburr | Fighting | 1 | |
+| Legendary | Rayquaza | Dragon | 1 | Mega Rayquaza (no stone) |
+| Legendary | Mewtwo | Psychic | 1 | Mega Mewtwo X / Y |
+| Fighter | Charmander → Charmeleon → Charizard | Fire | 4 | Mega Charizard Y |
+| Fighter | Squirtle → Wartortle → Blastoise | Water | 4 | Mega Blastoise |
+| Fighter | Bulbasaur → Ivysaur → Venusaur | Grass | 4 | Mega Venusaur |
+| Fighter | Geodude → Graveler → Golem | Rock | 3 | |
+| Fighter | Eevee → Vaporeon / Jolteon / Flareon | Normal | 4 | |
+| Fighter | Pikachu → Raichu | Electric | 4 | |
+| Fighter | Pidgey → Pidgeotto → Pidgeot | Flying | 4 | Mega Pidgeot |
+| Fighter | Snorlax | Normal | 2 | |
+| Fighter | Gastly → Haunter → Gengar | Ghost | 4 | Mega Gengar |
+| Fighter | Machop → Machoke → Machamp | Fighting | 4 | |
+| Fighter | Abra → Kadabra → Alakazam | Psychic | 4 | Mega Alakazam |
+| Fighter | Duraludon → Archaludon | Steel | 2 | |
 
-All numbers are in `js/config.js` if you want to rebalance.
+Every line's 6 skills are listed in the DECK screen. All numbers are in `js/config.js` if you want to rebalance.
 
 ## Turning on GitHub Pages
 
@@ -74,6 +90,7 @@ There is no build step. The site is plain HTML, CSS, and JavaScript modules.
 ```bash
 npx http-server -c-1 .     # then open http://localhost:8080
 npm test                   # feature checks + headless AI-vs-AI match
+node tests/difficulty.mjs 6 hard normal   # AI difficulty ladder
 ```
 
 (Opening `index.html` directly from disk won't work because browsers block ES modules on `file://`.)
@@ -81,8 +98,10 @@ npm test                   # feature checks + headless AI-vs-AI match
 ## Editing the art
 
 All sprites are PNGs in `assets/` (units, buildings, resources, tiles). Edit them in any pixel editor and refresh the page.
-They are generated by `tools/make_assets.py` (needs Python + Pillow). Re-running that script **overwrites** the PNGs,
-so either edit the character grids in the script or edit the PNGs directly, but not both.
+They are generated by `tools/make_assets.py` (sprites, items, buildings; V3 Pokémon live in `tools/new_sprites.py`,
+Megas in `tools/mega_sprites.py`, Rayquaza in `tools/rayquaza.py`) and `tools/skill_icons.py` (skill icons). Both need
+Python + Pillow. Re-running them **overwrites** the PNGs, so either edit the character grids in the scripts or edit the
+PNGs directly, but not both.
 
 ## Online play notes
 
@@ -95,12 +114,16 @@ so either edit the character grids in the script or edit the PNGs directly, but 
 
 | File | What it does |
 |---|---|
-| `js/config.js` | Units, buildings, research, type chart, AI difficulty |
+| `js/config.js` | Units, forms, buildings, research, skills, items, decks, type chart, AI difficulty |
 | `js/map.js` | Seeded, mirror-symmetric map generator |
-| `js/world.js` | Simulation: movement, combat, gathering, evolution, fog, network snapshots |
+| `js/world.js` | Simulation: movement, combat, squads, gathering, evolution, fog, network snapshots |
+| `js/skills.js` | Skill engine: passives, status effects, active skills, auto-casting |
+| `js/mega.js` | Mega Evolution and each Mega's special effect |
+| `js/deck.js` | Deck builder screen and saved decks |
 | `js/path.js` | A* pathfinding + path smoothing |
 | `js/ai.js` | Computer opponent |
 | `js/render.js` | Canvas renderer, effects, fog, minimap |
+| `js/skillfx.js`, `js/megafx.js` | Skill, status and Mega visuals |
 | `js/game.js` | Game loop, touch/mouse input, HUD |
 | `js/net.js` | PeerJS multiplayer |
 | `js/main.js` | Menus and lobby |

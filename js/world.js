@@ -1432,7 +1432,7 @@ export class World {
         b.healT = 1;
         this.nearUnits(b.x, b.y, TILE * 5, (u) => {
           if (u.owner === b.owner && u.hp < u.maxHp) {
-            u.hp = Math.min(u.maxHp, u.hp + 4);
+            u.hp = Math.min(u.maxHp, u.hp + Math.max(4, u.maxHp * 0.03));
             if (this.tick % 40 < 20) this.fx.push({ k: 'heal', x: u.x | 0, y: u.y | 0 });
           }
         });

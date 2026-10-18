@@ -232,7 +232,8 @@ export class AI {
       const hurt = army.filter((u) => this.retreatIds.has(u.id) && u.order.type === 'idle');
       if (hurt.length) W.issue(pid, { c: 'move', ids: ids(hurt), x: c.x, y: c.y, attack: true });
     } else if (this.state === 'build') {
-      if (pop(ready) >= this.wave) {
+      // no attacks before the difficulty's grace period is over
+      if (pop(ready) >= this.wave && W.time >= this.d.firstAttack) {
         // gather at a forward point first so the army arrives together
         this.state = 'stage';
         this.stageT = 0;
