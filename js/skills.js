@@ -3,7 +3,7 @@
 import { SKILLS, FORMS, UNITS, TILE, ASCENT, ITEMS, effectiveness, skillResearch } from './config.js';
 
 const MULT = ['dmg', 'hp', 'cd', 'speed', 'armor', 'rangedArmor', 'solid', 'regen', 'siege', 'gather', 'carry', 'build', 'pinch', 'eviolite', 'expert', 'firedmg'];
-const ADD = ['range', 'sight', 'dodge', 'cregen', 'pickup', 'thorns', 'lifesteal'];
+const ADD = ['range', 'sight', 'dodge', 'cregen', 'pickup', 'thorns', 'lifesteal', 'chain'];
 
 // Combine several mod objects into one.
 export function mergeMods(list) {
@@ -18,7 +18,7 @@ export function mergeMods(list) {
     }
     for (const k of ['contact', 'onhit', 'aura']) if (m[k]) (out[k] = out[k] || []).push(m[k]);
     if (m.immune) out.immune = 1;
-    if (m.noguard) out.noguard = 1;
+    for (const k of ['noguard', 'repair', 'magicguard', 'stalwart']) if (m[k]) out[k] = 1;
     if (m.stamina) out.stamina = Math.max(out.stamina || 0, m.stamina);
     if (m.sturdy) out.sturdy = Math.min(out.sturdy || Infinity, m.sturdy);
   }
@@ -60,8 +60,8 @@ export function applyStatus(W, t, st, src, owner, power = 1) {
   const m = unitMods(W, t);
   if (m.immune) return;
   const legend = UNITS[t.type].limit ? 0.5 : 1; // legendaries shrug off control effects faster
-  if (st.burn) t.burn = { t: st.burn.t, dps: st.burn.dps * power, src, owner };
-  if (st.poison) t.poison = { t: st.poison.t, dps: st.poison.dps * power, src, owner };
+  if (st.burn && !m.magicguard) t.burn = { t: st.burn.t, dps: st.burn.dps * power, src, owner };
+  if (st.poison && !m.magicguard) t.poison = { t: st.poison.t, dps: st.poison.dps * power, src, owner };
   if (st.stun) { t.stun = Math.max(t.stun || 0, st.stun * legend); t.path = null; t.pathKey = null; }
   if (st.sleep) { t.sleep = Math.max(t.sleep || 0, st.sleep * legend); t.path = null; t.pathKey = null; }
   if (st.slow) t.slow = { t: st.slow.t * legend, m: st.slow.m };
@@ -114,6 +114,7 @@ export function performSkill(W, lead, key, x, y) {
   const power = skillPower(W, lead);
   const r = (e.radius || 0) * TILE;
   W.fx.push({ k: 'cast', x: lead.x | 0, y: lead.y | 0, s: key });
+  selfAfter(W, lead, sq, e, key);
   switch (e.k) {
     case 'area':
       W.effects.push({ k: 'skill', key, x, y, r, t: e.delay || 0, owner: pid, src: lead.id, power });
@@ -129,7 +130,10 @@ export function performSkill(W, lead, key, x, y) {
           c.charge = { t: e.charge, key, x, y, power };
           c.path = null; c.pathKey = null;
           W.fx.push({ k: 'charge', id: c.id, x: c.x | 0, y: c.y | 0, d: e.charge, s: key });
-        } else fireLine(W, c, key, x, y, power);
+        } else {
+          fireLine(W, c, key, x, y, power);
+          if (e.selfbuff) addBuff(c, key, e.selfbuff.t, e.selfbuff.mods);
+        }
       }
       break;
     case 'cone': fireCone(W, lead, key, x, y, power); break;
@@ -179,6 +183,24 @@ export function performSkill(W, lead, key, x, y) {
         W.fx.push({ k: 'sleep', x: a.x | 0, y: a.y | 0, r: 10 });
       }
       break;
+    case 'teleport': {
+      // the whole squad blinks to the target, keeping its formation
+      const ms = sq ? W.squadUnits(sq) : [lead];
+      const slots = W.formation(ms, x, y);
+      ms.forEach((m, i) => {
+        let tx = slots[i].x, ty = slots[i].y;
+        if (W.blockedFor(m, tx, ty)) {
+          const f = W.nearestFree(Math.floor(tx / TILE), Math.floor(ty / TILE), 4);
+          if (!f) return;
+          tx = f.x * TILE + TILE / 2; ty = f.y * TILE + TILE / 2;
+        }
+        W.fx.push({ k: 'teleport', x: m.x | 0, y: m.y | 0, x2: tx | 0, y2: ty | 0 });
+        m.x = m.px = tx; m.y = m.py = ty;
+        m.path = null; m.pathKey = null;
+        m.order = { type: 'idle' };
+      });
+      break;
+    }
     case 'ascent': {
       const dmg = e.dmg * power;
       lead.ascend = { t: 0, x, y, phase: 'up', dmg, r, drain: e.drain, m: FORMS[lead.form].stage ? 1 : 0 };
@@ -189,6 +211,12 @@ export function performSkill(W, lead, key, x, y) {
       break;
     }
   }
+}
+
+// Self-inflicted after-effects (Draco Meteor lowers its own damage)
+function selfAfter(W, lead, sq, e, key) {
+  if (!e.selfdebuff) return;
+  for (const m of sq ? W.squadUnits(sq) : [lead]) addBuff(m, key + '_after', e.selfdebuff.t, e.selfdebuff.mods);
 }
 
 export function addBuff(u, key, t, mods, after) {
@@ -221,8 +249,10 @@ function hitUnit(W, t, key, src, owner, power, mult = 1) {
   let dealt = 0;
   const caster = W.ents.get(src);
   const boost = caster && caster.kind === 'unit' && S.type === 'fire' ? unitMods(W, caster).firedmg || 1 : 1;
-  if (e.dmg) dealt = W.damage(t, e.dmg * power * mult * boost * effectiveness(S.type, FORMS[t.form].type), src, owner, { skill: true, type: S.type });
+  const eff = e.fixed ? 1 : effectiveness(S.type, FORMS[t.form].type);
+  if (e.dmg) dealt = W.damage(t, e.dmg * power * mult * boost * eff, src, owner, { skill: true, type: e.fixed ? null : S.type });
   if (!W.ents.has(t.id)) return dealt;
+  if (e.debuff && !(t.mega && t.mega.phase === 'transform')) addBuff(t, key, e.debuff.t, e.debuff.mods);
   const st = {};
   if (e.burn) st.burn = e.burn;
   if (e.poison) st.poison = e.poison;
@@ -234,7 +264,7 @@ function hitUnit(W, t, key, src, owner, power, mult = 1) {
 }
 
 function knock(W, t, x, y, amt) {
-  if (t.mega && t.mega.phase === 'transform') return;
+  if ((t.mega && t.mega.phase === 'transform') || unitMods(W, t).stalwart) return;
   const d = Math.hypot(t.x - x, t.y - y) || 1;
   const ux = (t.x - x) / d, uy = (t.y - y) / d;
   const legend = UNITS[t.type].limit ? 0.3 : 1;
@@ -357,6 +387,8 @@ export function updateCharge(W, u, dt) {
   if (c.t > 0) return true;
   u.charge = null;
   fireLine(W, u, c.key, c.x, c.y, c.power);
+  const e = SKILLS[c.key].eff;
+  if (e.selfbuff) addBuff(u, c.key, e.selfbuff.t, e.selfbuff.mods);
   return false;
 }
 
@@ -401,6 +433,7 @@ export function autoTarget(W, sq, lead, key) {
   const fighting = ms.some((m) => m.order.type === 'attack' || W.time - (m.lastCombat ?? -99) < 3);
   const hpFrac = ms.reduce((s, m) => s + m.hp, 0) / (ms.length * lead.maxHp);
   const reach = (S.range + 1) * TILE;
+  if (e.k === 'teleport') return null; // only when the player (or the AI) decides to
   if (S.target === 'self') {
     if (e.k === 'rest') return hpFrac < 0.35 ? lead : null;
     if (e.k === 'roost') return hpFrac < 0.5 && !ms.some((m) => m.order.type === 'attack' && m.hp < m.maxHp * 0.2) ? lead : null;

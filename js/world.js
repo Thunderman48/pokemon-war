@@ -9,7 +9,7 @@ import { Pathfinder } from './path.js';
 import {
   unitMods, applyStatus, updateStatus, performSkill, updateDash, updateCharge, resolveArea, updateZones, autoTarget, addBuff,
 } from './skills.js';
-import { megaBlock, startMega, updateMega, resolveCannon } from './mega.js';
+import { megaBlock, startMega, updateMega, resolveCannon, resolveOrb } from './mega.js';
 
 const CELL = 32;
 const circleCache = new Map();
@@ -801,6 +801,16 @@ export class World {
     const o = u.order;
     switch (o.type) {
       case 'idle':
+        if (def.worker && u.scanT <= 0 && mods.repair) {
+          u.scanT = 1;
+          let best = null, bd = 8 * TILE;
+          for (const b of this.ents.values()) {
+            if (b.kind !== 'building' || b.owner !== u.owner || !b.built || b.hp >= b.maxHp) continue;
+            const d = this.edgeDist(u, b);
+            if (d < bd) { bd = d; best = b; }
+          }
+          if (best) u.order = { type: 'repair', target: best.id };
+        }
         if (!def.worker && u.scanT <= 0) {
           u.scanT = 0.4;
           const e = this.findEnemy(u, st.sight * TILE);
@@ -876,6 +886,18 @@ export class World {
         break;
       }
       case 'gather': this.updateGather(u, dt, st); break;
+      case 'repair': {
+        const b = this.ents.get(o.target);
+        if (!b || b.owner !== u.owner || b.hp >= b.maxHp) { u.order = { type: 'idle' }; break; }
+        if (this.approach(u, b, 6, dt, st)) {
+          b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.015 * (mods.build || 1) * dt);
+          u.anim = 0.2;
+          u.face = b.x > u.x ? 1 : -1;
+          if ((this.tick + u.id) % 20 === 0) this.fx.push({ k: 'heal', x: u.x | 0, y: (u.y - 4) | 0 });
+        }
+        this.checkStuck(u, dt, o);
+        break;
+      }
       case 'build': {
         const b = this.ents.get(o.target);
         if (!b || b.built || b.owner !== u.owner) {
@@ -990,7 +1012,7 @@ export class World {
       // long Pokémon (Rayquaza) breathe from their mouth, not their middle
       const mouth = !isB && FORMS[u.form].mouth;
       const x1 = mouth ? u.x + mouth[0] * u.face : u.x, y1 = mouth ? u.y + mouth[1] : u.y - lift;
-      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y, proj, eff, onhit: am.onhit, steal: am.lifesteal, noguard: am.noguard });
+      this.projectiles.push({ t: t.id, dmg, src: u.id, owner: u.owner, left: dur, splash: def.splash || 0, atkType, x: t.x, y: t.y, proj, eff, onhit: am.onhit, steal: am.lifesteal, noguard: am.noguard, chain: am.chain });
       this.fx.push({ k: 'p', x1: x1 | 0, y1: y1 | 0, x2: t.x | 0, y2: (t.y - (isFlying(t) ? 12 : 4)) | 0, d: dur, s: proj });
     } else {
       this.fx.push({ k: 'hit', x: ((u.x + t.x) / 2) | 0, y: ((u.y + t.y) / 2 - 4) | 0 });
@@ -1031,6 +1053,16 @@ export class World {
         const got = this.damage(t, p.dmg, p.src, p.owner, { ranged: true, type: p.atkType, eff: p.eff, noguard: p.noguard });
         const s = p.steal && got > 0 && this.ents.get(p.src);
         if (s) s.hp = Math.min(s.maxHp, s.hp + got * p.steal);
+        // Mega Alakazam's blasts jump to nearby enemies
+        if (p.chain) {
+          let n = p.chain;
+          this.nearUnits(t.x, t.y, 3 * TILE, (e) => {
+            if (n <= 0 || e === t || e.owner === p.owner || e.owner < 0 || !this.ents.has(e.id) || Math.hypot(e.x - t.x, e.y - t.y) > 3 * TILE) return;
+            n--;
+            this.fx.push({ k: 'beam', x1: t.x | 0, y1: (t.y - 6) | 0, x2: e.x | 0, y2: (e.y - 6) | 0, w: 4, s: 'psybeam', d: 0.35 });
+            this.damage(e, p.dmg * 0.5, p.src, p.owner, { ranged: true, type: p.atkType });
+          });
+        }
         if (p.onhit && this.ents.has(t.id)) this.onHit(p.onhit, t, { id: p.src, owner: p.owner });
       }
     }
@@ -1093,6 +1125,7 @@ export class World {
       this.effects.splice(i, 1);
       if (e.k === 'skill') resolveArea(this, e);
       else if (e.k === 'cannon') resolveCannon(this, e);
+      else if (e.k === 'orb') resolveOrb(this, e);
     }
   }
 
@@ -1280,8 +1313,10 @@ export class World {
     if (mods.aura) {
       for (const a of mods.aura) {
         const r = a.radius * TILE;
+        // ally auras (Tailwind) or enemy auras (Pressure)
         this.nearUnits(lead.x, lead.y, r, (f) => {
-          if (f.owner === pid && Math.hypot(f.x - lead.x, f.y - lead.y) <= r) addBuff(f, 'aura', 1, a.mods);
+          if (f.owner < 0 || (a.enemy ? f.owner === pid : f.owner !== pid) || Math.hypot(f.x - lead.x, f.y - lead.y) > r) return;
+          addBuff(f, a.enemy ? 'aura_e' : 'aura', 1, a.mods);
         });
       }
     }
@@ -1507,7 +1542,7 @@ export class World {
       if (x.kind === 'unit') {
         const flags = (x.moving ? 1 : 0) | (x.anim > 0 ? 2 : 0) | (x.carry.kind === 'berry' && x.carry.amt ? 4 : 0) |
           (x.carry.kind === 'crystal' && x.carry.amt ? 8 : 0) | (x.order.type === 'idle' ? 16 : 0) |
-          (x.order.type === 'gather' ? 32 : 0) | (x.order.type === 'build' ? 64 : 0) | (x.order.type === 'attack' ? 128 : 0) |
+          (x.order.type === 'gather' ? 32 : 0) | (x.order.type === 'build' || x.order.type === 'repair' ? 64 : 0) | (x.order.type === 'attack' ? 128 : 0) |
           (x.sleep > 0 ? 256 : 0) | (x.evoReady ? 512 : 0) | (x.order.type === 'cast' ? 1024 : 0) |
           (x.ascend ? (x.ascend.phase === 'up' ? 2048 : 4096) : 0) | (x.burn ? 8192 : 0) | (x.poison ? 16384 : 0) |
           (x.stun > 0 ? 32768 : 0) | (x.slow ? 65536 : 0) | (x.buffs && x.buffs.some((b) => b.key !== 'aura') ? 131072 : 0) |

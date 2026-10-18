@@ -5,8 +5,9 @@ import { megaBlock } from './mega.js';
 // enemy's most common type -> good counters
 const COUNTER = {
   fire: ['squirtle', 'geodude'], water: ['bulbasaur', 'pikachu'], grass: ['charmander', 'pidgey'],
-  electric: ['geodude', 'bulbasaur'], normal: ['geodude', 'charmander'], fighting: ['pidgey', 'charmander'],
-  flying: ['geodude', 'pikachu'], rock: ['squirtle', 'bulbasaur'], dragon: ['pikachu', 'geodude'],
+  electric: ['geodude', 'bulbasaur'], normal: ['geodude', 'machopf', 'gastly'], fighting: ['pidgey', 'abra', 'gastly'],
+  flying: ['geodude', 'pikachu'], rock: ['squirtle', 'bulbasaur', 'machopf'], dragon: ['pikachu', 'geodude', 'duraludon'],
+  psychic: ['gastly', 'duraludon'], ghost: ['gastly', 'abra'], steel: ['charmander', 'machopf'],
 };
 // evolution research the AI wants for each line it owns, in order (skills come from its deck)
 const LINE_RESEARCH = {
@@ -14,6 +15,8 @@ const LINE_RESEARCH = {
   bulbasaur: ['evo_ivysaur', 'evo_venusaur'], geodude: ['evo_graveler', 'evo_golem'],
   pidgey: ['evo_pidgeotto', 'evo_pidgeot'], pikachu: ['thunderstone'],
   eevee: ['waterstone', 'thunderstone', 'firestone'], rayquaza: [],
+  gastly: ['evo_haunter', 'evo_gengar'], machopf: ['evo_machoke', 'evo_machamp'], abra: ['evo_kadabra', 'evo_alakazam'],
+  duraludon: ['evo_archaludon'], mewtwo: [],
 };
 
 export class AI {

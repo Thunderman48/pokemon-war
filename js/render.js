@@ -605,6 +605,30 @@ export class Renderer {
       ctx.fillStyle = '#ffffff'; ctx.fillRect(x - 1, yy - 2, 2, 2);
       return;
     }
+    if (kind === 'psy' || kind === 'psyorb') {
+      // pink psychic orb with a swirl
+      const r = kind === 'psyorb' ? 4 : 2.6;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(248,88,170,0.45)'; ctx.beginPath(); ctx.arc(x, y, r + 2, 0, 7); ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#ff9ad0'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(x - 1 + Math.cos(now / 50) * 1.2, y - 1 + Math.sin(now / 50) * 1.2, 1.5, 1.5);
+      return;
+    }
+    if (kind === 'shadow') {
+      ctx.fillStyle = 'rgba(70,30,110,0.6)'; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 7); ctx.fill();
+      ctx.fillStyle = '#2a1640'; ctx.beginPath(); ctx.arc(x, y, 2.2, 0, 7); ctx.fill();
+      ctx.fillStyle = '#c8a0ff'; ctx.fillRect(x - 0.5, y - 1.5, 1, 1);
+      return;
+    }
+    if (kind === 'steelbeam') {
+      const dx = f.x2 - f.x1, dy = f.y2 - f.y1, d = Math.hypot(dx, dy) || 1;
+      ctx.strokeStyle = '#e8f0ff'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(x - dx / d * 10, y - dy / d * 10); ctx.lineTo(x, y); ctx.stroke();
+      ctx.strokeStyle = '#7fa8ff'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x - dx / d * 14, y - dy / d * 14); ctx.lineTo(x, y); ctx.stroke();
+      return;
+    }
     if (kind === 'ember') {
       ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, 7); ctx.fill();
       ctx.fillStyle = '#ffe14d'; ctx.beginPath(); ctx.arc(x, y, 1.2, 0, 7); ctx.fill();

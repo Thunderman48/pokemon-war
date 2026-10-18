@@ -733,10 +733,14 @@ def save(img, *parts):
 
 
 def main():
-    # Mega Evolutions are painted on top of the final forms (tools/mega_sprites.py)
+    # V3 Pokémon (tools/new_sprites.py) and Mega Evolutions painted on top of final forms (tools/mega_sprites.py)
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import mega_sprites
+    import new_sprites
+    PAL.update(new_sprites.PAL_EXTRA)
+    SPRITES.update(new_sprites.SPRITES)
     SPRITES.update(mega_sprites.build(SPRITES))
+    SPRITES.update(new_sprites.build(SPRITES))
     units = [k for k in SPRITES if k not in ("berry", "crystal")]
     imgs = {}
     for k in units:

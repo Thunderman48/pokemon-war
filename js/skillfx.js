@@ -10,6 +10,7 @@ export function skillFxLife(f) {
     case 'buff': return 0.9;
     case 'trail': return 0.35;
     case 'miss': case 'sturdy': return 0.8;
+    case 'teleport': return 0.6;
     default: return 0;
   }
 }
@@ -77,6 +78,16 @@ export function drawSkillFx(R, f, t, now) {
           ctx.fillStyle = '#c8a850'; ctx.fillRect(f.x + ox - 2, f.y + oy - h - 3, 3, 2);
         }
       }
+      if (f.s === 'dracometeor' || f.s === 'futuresight') {
+        // meteors (or a psychic omen) streaking down
+        for (let i = 0; i < 5; i++) {
+          const ox = Math.cos(i * 2.3) * f.r * 0.6, oy = Math.sin(i * 2.3) * f.r * 0.4;
+          const h = (1 - t) * 120 + i * 8;
+          const c = f.s === 'dracometeor' ? ['#ffb050', '#ff7030'] : ['#ffb0e0', '#f060b0'];
+          ctx.fillStyle = c[1]; ctx.beginPath(); ctx.arc(f.x + ox + h * 0.4, f.y + oy - h, 3, 0, 7); ctx.fill();
+          ctx.fillStyle = c[0]; ctx.beginPath(); ctx.arc(f.x + ox + h * 0.4 - 1, f.y + oy - h - 1, 1.5, 0, 7); ctx.fill();
+        }
+      }
       if (f.s === 'yawn') {
         ctx.fillStyle = `rgba(255,190,230,${0.6})`;
         ctx.font = 'bold 6px monospace';
@@ -105,6 +116,18 @@ export function drawSkillFx(R, f, t, now) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = hex(col, 0.55 * (1 - t));
       ctx.beginPath(); ctx.ellipse(f.x, f.y, 6 * (1 - t) + 1, 4 * (1 - t) + 1, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      return;
+    }
+    case 'teleport': {
+      // vanish in a pink flash, reappear in another
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (const [px, py, k] of [[f.x, f.y, 1 - t], [f.x2, f.y2, t < 0.3 ? t / 0.3 : 1 - (t - 0.3) / 0.7]]) {
+        ctx.fillStyle = `rgba(248,120,200,${0.6 * k})`;
+        ctx.beginPath(); ctx.ellipse(px, py - 6, 5 + 6 * (1 - k), 9 + 4 * (1 - k), 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(255,255,255,${k})`;
+        for (let i = 0; i < 4; i++) ctx.fillRect(px + Math.cos(i * 1.6 + t * 9) * 8 - 1, py - 6 + Math.sin(i * 1.6 + t * 9) * 8 - 1, 2, 2);
+      }
       ctx.restore();
       return;
     }
@@ -255,6 +278,28 @@ function hit(R, f, t, now, col) {
       const x = f.x + Math.cos(a) * d, y = f.y + Math.sin(a) * d * 0.7;
       ctx.fillStyle = `rgba(255,240,120,${1 - t})`;
       ctx.fillRect(x - 2, y, 5, 1); ctx.fillRect(x, y - 2, 1, 5);
+    }
+  } else if (s === 'psystrike' || s === 'psychic' || s === 'futuresight') {
+    ctx.strokeStyle = `rgba(248,110,190,${1 - t})`; ctx.lineWidth = 2;
+    for (let j = 0; j < 3; j++) {
+      const rr = f.r * Math.min(1, t * 1.8 + j * 0.2);
+      ctx.beginPath(); ctx.ellipse(f.x, f.y - j * 3, rr, rr * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = `rgba(255,200,240,${0.5 * (1 - t)})`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r * 0.5, f.r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+  } else if (s === 'curse' || s === 'nightshade') {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = `rgba(40,16,70,${0.55 * (1 - t)})`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r * (0.6 + t * 0.4), f.r * 0.7 * (0.6 + t * 0.4), 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(200,140,255,${1 - t})`;
+    for (let j = 0; j < 8; j++) ctx.fillRect(f.x + Math.cos(j * 0.8) * f.r * 0.6, f.y + Math.sin(j * 0.8) * f.r * 0.4 - t * 14, 2, 3);
+  } else if (s === 'dracometeor') {
+    ctx.fillStyle = `rgba(255,150,80,${0.5 * (1 - t)})`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r * (0.5 + t * 0.6), f.r * 0.7 * (0.5 + t * 0.6), 0, 0, Math.PI * 2); ctx.fill();
+    for (let j = 0; j < 6; j++) {
+      const ox = Math.cos(j * 1.1) * f.r * 0.6, oy = Math.sin(j * 1.1) * f.r * 0.4;
+      ctx.fillStyle = `rgba(255,${220 - j * 15},120,${1 - t})`;
+      ctx.beginPath(); ctx.arc(f.x + ox, f.y + oy, 4 * (1 - t) + 1, 0, 7); ctx.fill();
     }
   } else if (s === 'thunderwave') {
     ctx.strokeStyle = `rgba(255,240,90,${1 - t})`; ctx.lineWidth = 1.5;

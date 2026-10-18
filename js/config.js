@@ -20,15 +20,18 @@ export const TEAM_NAMES = ['Blue', 'Red'];
 
 // attacker type -> defender type -> multiplier
 const EFF = {
-  fire: { grass: 1.5, water: 0.67, fire: 0.67, rock: 0.67, dragon: 0.67 },
+  fire: { grass: 1.5, steel: 1.5, water: 0.67, fire: 0.67, rock: 0.67, dragon: 0.67 },
   water: { fire: 1.5, rock: 1.5, grass: 0.67, water: 0.67, dragon: 0.67 },
-  grass: { water: 1.5, rock: 1.5, fire: 0.67, grass: 0.67, flying: 0.67, dragon: 0.67 },
+  grass: { water: 1.5, rock: 1.5, fire: 0.67, grass: 0.67, flying: 0.67, dragon: 0.67, steel: 0.67 },
   electric: { water: 1.5, flying: 1.5, grass: 0.67, electric: 0.67, rock: 0.5, dragon: 0.67 },
-  fighting: { normal: 1.5, rock: 1.5, flying: 0.67 },
-  normal: { rock: 0.67 },
-  flying: { grass: 1.5, fighting: 1.5, rock: 0.67, electric: 0.67 },
-  rock: { fire: 1.5, flying: 1.5, fighting: 0.67 },
-  dragon: { dragon: 1.5 },
+  fighting: { normal: 1.5, rock: 1.5, steel: 1.5, flying: 0.67, psychic: 0.67, ghost: 0.3 },
+  normal: { rock: 0.67, steel: 0.67, ghost: 0.3 },
+  flying: { grass: 1.5, fighting: 1.5, rock: 0.67, electric: 0.67, steel: 0.67 },
+  rock: { fire: 1.5, flying: 1.5, fighting: 0.67, steel: 0.67 },
+  dragon: { dragon: 1.5, steel: 0.67 },
+  psychic: { fighting: 1.5, ghost: 1.5, psychic: 0.67, steel: 0.67 },
+  ghost: { psychic: 1.5, ghost: 1.5, normal: 0.3 },
+  steel: { rock: 1.5, fire: 0.67, water: 0.67, electric: 0.67, steel: 0.67 },
 };
 export function effectiveness(atk, def) {
   return (EFF[atk] && EFF[atk][def]) || 1;
@@ -37,6 +40,7 @@ export function effectiveness(atk, def) {
 export const TYPE_COLORS = {
   fire: '#f08030', water: '#6890f0', grass: '#78c850', electric: '#e0b820', normal: '#a8a878',
   fighting: '#c03028', flying: '#a890f0', rock: '#b8a038', dragon: '#7038f8', building: '#888',
+  psychic: '#f85888', ghost: '#705898', steel: '#b8b8d0',
 };
 
 // XP (damage dealt) needed to reach each evolution stage. Evolving also needs research.
@@ -102,6 +106,36 @@ export const UNITS = {
     flying: true, limit: 1,
     desc: 'Legendary sky dragon. Dragon Breath hits an area. Only one allowed.',
   },
+  timburr: {
+    name: 'Timburr', hp: 75, dmg: 6, cd: 1.0, range: 0.4, speed: 2.4, sight: 6,
+    cost: { b: 55, c: 0 }, time: 13, pop: 1, radius: 5, worker: true,
+    desc: 'Worker. Gathers and builds; carries a beam it can use to repair buildings.',
+  },
+  mewtwo: {
+    name: 'Mewtwo', hp: 820, dmg: 32, cd: 1.2, range: 5, speed: 2.9, sight: 10,
+    cost: { b: 450, c: 450 }, time: 60, pop: 10, radius: 9, proj: 'psy', splash: 0.8, limit: 1,
+    desc: 'Legendary psychic. Huge damage from range, but fragile. Only one allowed.',
+  },
+  gastly: {
+    name: 'Gastly', hp: 46, dmg: 6.5, cd: 1.0, range: 3.5, speed: 2.8, sight: 7, squad: 4,
+    cost: { b: 115, c: 115 }, time: 22, pop: 1, radius: 5, proj: 'shadow',
+    desc: 'Ghost. Normal and Fighting attacks barely touch it. Strong vs Psychic & Ghost.',
+  },
+  machopf: {
+    name: 'Machop', hp: 105, dmg: 9, cd: 0.9, range: 0.5, speed: 2.5, sight: 6, squad: 4,
+    cost: { b: 135, c: 40 }, time: 22, pop: 1, radius: 5,
+    desc: 'Close-range brawler. Strong vs Normal, Rock & Steel. Can\'t hit flyers.',
+  },
+  abra: {
+    name: 'Abra', hp: 40, dmg: 7.5, cd: 1.1, range: 4.5, speed: 2.3, sight: 8, squad: 4,
+    cost: { b: 120, c: 125 }, time: 24, pop: 1, radius: 5, proj: 'psy', req: 'lab',
+    desc: 'Psychic sniper. Fragile, but can teleport. Strong vs Fighting & Ghost.',
+  },
+  duraludon: {
+    name: 'Duraludon', hp: 380, dmg: 26, cd: 2.4, range: 7.5, speed: 1.4, sight: 9, squad: 2,
+    cost: { b: 220, c: 260 }, time: 40, pop: 3, radius: 9, proj: 'steelbeam', siege: 1.8, req: 'lab',
+    desc: 'Siege tank of steel: slow, tough and very long range. Evolves into Archaludon.',
+  },
 };
 
 // Every form a Pokémon can take. `next` lists evolutions: reach the XP and finish the research.
@@ -140,6 +174,26 @@ export const FORMS = {
   rayquaza: { line: 'rayquaza', name: 'Rayquaza', type: 'dragon', stage: 0, mouth: [66, -42], anim: 8, fast: 8, mega: 'megarayquaza' },
   megarayquaza: { line: 'rayquaza', name: 'Mega Rayquaza', type: 'dragon', stage: 1, isMega: true, mouth: [71, -48], anim: 8, fast: 8, proj: 'megabreath', mult: { hp: 1.8, dmg: 1.6, range: 1.5, speed: 1.2 } },
 };
+
+Object.assign(FORMS, {
+  timburr: { line: 'timburr', name: 'Timburr', type: 'fighting', stage: 0 },
+  mewtwo: { line: 'mewtwo', name: 'Mewtwo', type: 'psychic', stage: 0, scale: 1.35, mega: { mewtwonitex: 'megamewtwox', mewtwonitey: 'megamewtwoy' } },
+  megamewtwox: { line: 'mewtwo', name: 'Mega Mewtwo X', type: 'fighting', stage: 1, isMega: true, scale: 1.35, proj: 'psy', mult: { hp: 1.7, dmg: 1.6, range: 0, speed: 1.15 }, mods: { onhit: { chance: 0.3, stun: 0.6 }, armor: 0.85 } },
+  megamewtwoy: { line: 'mewtwo', name: 'Mega Mewtwo Y', type: 'psychic', stage: 1, isMega: true, scale: 1.35, mult: { hp: 1.4, dmg: 1.9, range: 1.5 } },
+  gastly: { line: 'gastly', name: 'Gastly', type: 'ghost', stage: 0, next: [{ to: 'haunter', r: 'evo_haunter' }] },
+  haunter: { line: 'gastly', name: 'Haunter', type: 'ghost', stage: 1, next: [{ to: 'gengar', r: 'evo_gengar' }] },
+  gengar: { line: 'gastly', name: 'Gengar', type: 'ghost', stage: 2, mega: 'megagengar' },
+  megagengar: { line: 'gastly', name: 'Mega Gengar', type: 'ghost', stage: 3, isMega: true, mult: { hp: 2.8, dmg: 3.0, range: 1.5 } },
+  machopf: { line: 'machopf', name: 'Machop', type: 'fighting', stage: 0, next: [{ to: 'machoke', r: 'evo_machoke' }] },
+  machoke: { line: 'machopf', name: 'Machoke', type: 'fighting', stage: 1, next: [{ to: 'machamp', r: 'evo_machamp' }] },
+  machamp: { line: 'machopf', name: 'Machamp', type: 'fighting', stage: 2, mult: { hp: 2.5, dmg: 2.2, range: 0, cd: 0.85 } },
+  abra: { line: 'abra', name: 'Abra', type: 'psychic', stage: 0, next: [{ to: 'kadabra', r: 'evo_kadabra' }] },
+  kadabra: { line: 'abra', name: 'Kadabra', type: 'psychic', stage: 1, next: [{ to: 'alakazam', r: 'evo_alakazam' }] },
+  alakazam: { line: 'abra', name: 'Alakazam', type: 'psychic', stage: 2, mega: 'megaalakazam' },
+  megaalakazam: { line: 'abra', name: 'Mega Alakazam', type: 'psychic', stage: 3, isMega: true, mult: { hp: 2.6, dmg: 2.8, range: 2 }, mods: { chain: 2 } },
+  duraludon: { line: 'duraludon', name: 'Duraludon', type: 'steel', stage: 0, next: [{ to: 'archaludon', r: 'evo_archaludon' }] },
+  archaludon: { line: 'duraludon', name: 'Archaludon', type: 'steel', stage: 1, mult: { hp: 1.7, dmg: 1.6, range: 1.5 } },
+});
 
 export const BUILDINGS = {
   center: {
@@ -190,6 +244,13 @@ export const RESEARCH = {
   evo_golem: evo('geodude', 'Golem', 'golem', 200, 175, 45, 'evo_graveler'),
   evo_pidgeotto: evo('pidgey', 'Pidgeotto', 'pidgeotto', 100, 75, 30),
   evo_pidgeot: evo('pidgey', 'Pidgeot', 'pidgeot', 200, 175, 45, 'evo_pidgeotto'),
+  evo_haunter: evo('gastly', 'Haunter', 'haunter', 100, 90, 30),
+  evo_gengar: evo('gastly', 'Gengar', 'gengar', 200, 200, 45, 'evo_haunter'),
+  evo_machoke: evo('machopf', 'Machoke', 'machoke', 100, 60, 30),
+  evo_machamp: evo('machopf', 'Machamp', 'machamp', 200, 150, 45, 'evo_machoke'),
+  evo_kadabra: evo('abra', 'Kadabra', 'kadabra', 110, 100, 30),
+  evo_alakazam: evo('abra', 'Alakazam', 'alakazam', 220, 200, 45, 'evo_kadabra'),
+  evo_archaludon: { ...evo('duraludon', 'Archaludon', 'archaludon', 250, 250, 50), name: 'Metal Alloy', desc: 'Duraludon evolves into Archaludon once it has enough XP.' },
   thunderstone: { lines: ['pikachu', 'eevee'], name: 'Thunder Stone', icon: 'i:thunderstone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Pikachu → Raichu and Eevee → Jolteon.' },
   waterstone: { lines: ['eevee'], name: 'Water Stone', icon: 'i:waterstone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Eevee → Vaporeon.' },
   firestone: { lines: ['eevee'], name: 'Fire Stone', icon: 'i:firestone', cost: { b: 125, c: 100 }, time: 35, group: 'evo', desc: 'Eevee → Flareon.' },
@@ -221,6 +282,10 @@ export const ITEMS = {
   blastoisinite: { name: 'Blastoisinite', mega: 'squirtle', color: '#6890f0', desc: 'Lets Blastoise Mega Evolve.' },
   venusaurite: { name: 'Venusaurite', mega: 'bulbasaur', color: '#78c850', desc: 'Lets Venusaur Mega Evolve.' },
   pidgeotite: { name: 'Pidgeotite', mega: 'pidgey', color: '#d8b060', desc: 'Lets Pidgeot Mega Evolve.' },
+  gengarite: { name: 'Gengarite', mega: 'gastly', color: '#705898', desc: 'Lets Gengar Mega Evolve.' },
+  alakazite: { name: 'Alakazite', mega: 'abra', color: '#f8c048', desc: 'Lets Alakazam Mega Evolve.' },
+  mewtwonitex: { name: 'Mewtwonite X', mega: 'mewtwo', color: '#5878e8', desc: 'Mewtwo Mega Evolves into Mega Mewtwo X (Fighting).' },
+  mewtwonitey: { name: 'Mewtwonite Y', mega: 'mewtwo', color: '#c068f0', desc: 'Mewtwo Mega Evolves into Mega Mewtwo Y (Psychic).' },
   leftovers: { name: 'Leftovers', desc: 'Heals 1% HP per second, even in combat.', mods: { cregen: 0.01 } },
   choiceband: { name: 'Choice Band', desc: '+25% damage.', mods: { dmg: 1.25 } },
   quickclaw: { name: 'Quick Claw', desc: 'Attacks 15% faster.', mods: { cd: 0.85 } },
@@ -356,6 +421,69 @@ export const SKILLS = {
   extremespeed: A({ line: 'rayquaza', name: 'Extreme Speed', type: 'normal', glyph: 'dash', cd: 12, range: 9, desc: 'Streaks across the battlefield, striking everything in its path.',
     eff: { k: 'dash', dmg: 60, speed: 22, width: 14 }, legend: true }),
   deltastream: P({ line: 'rayquaza', name: 'Delta Stream', type: 'flying', glyph: 'wind', desc: 'Takes 40% less damage from ranged attacks.', mods: { rangedArmor: 0.6 }, legend: true }),
+  // --- Timburr (worker)
+  repair: P({ line: 'timburr', name: 'Repair', type: 'fighting', glyph: 'hammer', desc: 'Idle workers repair damaged buildings nearby.', mods: { repair: 1 } }),
+  construction: P({ line: 'timburr', name: 'Construction', type: 'fighting', glyph: 'hammer', desc: 'Workers build 60% faster.', mods: { build: 1.6 } }),
+  ironfist: P({ line: 'timburr', name: 'Iron Fist', type: 'fighting', glyph: 'fist', desc: 'Workers deal triple damage.', mods: { dmg: 3 } }),
+  sheerforce: P({ line: 'timburr', name: 'Sheer Force', type: 'fighting', glyph: 'muscle', desc: 'Workers have +70% HP.', mods: { hp: 1.7 } }),
+  quickhaul: P({ line: 'timburr', name: 'Quick Haul', type: 'normal', glyph: 'bag', desc: 'Workers gather 15% faster and carry 20% more.', mods: { gather: 1.15, carry: 1.2 } }),
+  rockclimb: P({ line: 'timburr', name: 'Rock Climb', type: 'rock', glyph: 'wing', desc: 'Workers move 30% faster.', mods: { speed: 1.3 } }),
+  // --- Mewtwo (legendary)
+  psystrike: A({ line: 'mewtwo', name: 'Psystrike', type: 'psychic', glyph: 'psy', cd: 14, range: 7, desc: 'A crushing psychic blast on a small area.',
+    eff: { k: 'area', radius: 1.4, dmg: 170, delay: 0.3, bld: 0.5 }, legend: true }),
+  psychic: A({ line: 'mewtwo', name: 'Psychic', type: 'psychic', glyph: 'swirl', cd: 20, range: 7, desc: 'Lifts enemies in an area into the air: damage and 1.5 s of helplessness.',
+    eff: { k: 'area', radius: 2.2, dmg: 60, stun: 1.5 }, legend: true }),
+  barrier: A({ line: 'mewtwo', name: 'Barrier', type: 'psychic', glyph: 'shield', cd: 24, range: 0, target: 'self', desc: 'Takes 70% less damage for 5 seconds.',
+    eff: { k: 'buff', who: 'squad', t: 5, mods: { armor: 0.3 } }, legend: true }),
+  recover: A({ line: 'mewtwo', name: 'Recover', type: 'normal', glyph: 'heart', cd: 35, range: 0, target: 'self', desc: 'Heals half of its HP.',
+    eff: { k: 'roost', amount: 0.5 }, legend: true }),
+  futuresight: A({ line: 'mewtwo', name: 'Future Sight', type: 'psychic', glyph: 'eye', cd: 22, range: 9, desc: 'Foresees an attack: 2.5 s later a huge blast hits the area.',
+    eff: { k: 'area', radius: 2.6, dmg: 130, delay: 2.5, bld: 0.6 }, legend: true }),
+  pressure: P({ line: 'mewtwo', name: 'Pressure', type: 'psychic', glyph: 'eye', desc: 'Enemies near Mewtwo attack 25% slower.', mods: { aura: { radius: 5, enemy: true, mods: { cd: 1.25 } } }, legend: true }),
+  // --- Gastly line
+  shadowball: A({ line: 'gastly', name: 'Shadow Ball', type: 'ghost', glyph: 'ghost', cd: 12, range: 5, desc: 'Every member hurls a ball of shadow.',
+    eff: { k: 'line', each: true, dmg: 22, width: 10 } }),
+  hypnosis: A({ line: 'gastly', name: 'Hypnosis', type: 'psychic', glyph: 'zzz', cd: 22, range: 6, desc: 'Puts enemies in an area to sleep for 3 seconds.',
+    eff: { k: 'area', radius: 1.8, sleep: 3 } }),
+  curse: A({ line: 'gastly', name: 'Curse', type: 'ghost', glyph: 'skull', cd: 20, range: 6, desc: 'Cursed enemies in an area take 35% more damage for 6 seconds.',
+    eff: { k: 'area', radius: 2, debuff: { t: 6, mods: { armor: 1.35 } } } }),
+  nightshade: A({ line: 'gastly', name: 'Night Shade', type: 'ghost', glyph: 'moon', cd: 14, range: 6, desc: 'Fixed damage to everything in an area, whatever its type.',
+    eff: { k: 'area', radius: 2, dmg: 34, fixed: true } }),
+  levitate: P({ line: 'gastly', name: 'Levitate', type: 'ghost', glyph: 'wing', desc: 'Floats: takes half damage from Rock and Fighting attacks.', mods: { resist: { rock: 0.5, fighting: 0.5 } } }),
+  cursedbody: P({ line: 'gastly', name: 'Cursed Body', type: 'ghost', glyph: 'body', desc: 'Close-range attackers are slowed (40%).', mods: { contact: { chance: 0.4, slow: { t: 2, m: 0.6 } } } }),
+  // --- Machop line (fighters)
+  crosschop: A({ line: 'machopf', name: 'Cross Chop', type: 'fighting', glyph: 'fist', cd: 10, range: 5, desc: 'Every member leaps in with a chop.',
+    eff: { k: 'dash', each: true, dmg: 26, speed: 12, radius: 0.8 } }),
+  dynamicpunch: A({ line: 'machopf', name: 'Dynamic Punch', type: 'fighting', glyph: 'boom', cd: 16, range: 2, desc: 'A huge punch that stuns everything around the target.',
+    eff: { k: 'area', radius: 1.4, dmg: 50, stun: 1.2 } }),
+  seismictoss: A({ line: 'machopf', name: 'Seismic Toss', type: 'fighting', glyph: 'up', cd: 14, range: 2, desc: 'Throws enemies far away.',
+    eff: { k: 'area', radius: 1.4, dmg: 32, knock: 30, fixed: true } }),
+  focusenergy: A({ line: 'machopf', name: 'Focus Energy', type: 'fighting', glyph: 'muscle', cd: 24, range: 0, target: 'self', desc: '+50% damage for 6 seconds.',
+    eff: { k: 'buff', who: 'squad', t: 6, mods: { dmg: 1.5 } } }),
+  noguard: P({ line: 'machopf', name: 'No Guard', type: 'fighting', glyph: 'eye', desc: 'Attacks never miss and deal 10% more.', mods: { noguard: 1, dmg: 1.1 } }),
+  innerfocus: P({ line: 'machopf', name: 'Inner Focus', type: 'fighting', glyph: 'shield', desc: 'Immune to sleep, paralysis, slow, burn and poison.', mods: { immune: 1 } }),
+  // --- Abra line
+  psybeam: A({ line: 'abra', name: 'Psybeam', type: 'psychic', glyph: 'beam', cd: 12, range: 6, desc: 'Every member fires a psychic beam that may confuse (stun 1 s).',
+    eff: { k: 'line', each: true, dmg: 22, width: 8, stunChance: 0.3, stun: 1 } }),
+  teleport: A({ line: 'abra', name: 'Teleport', type: 'psychic', glyph: 'swirl', cd: 18, range: 9, target: 'point', desc: 'The squad teleports anywhere close by.',
+    eff: { k: 'teleport' } }),
+  calmmind: A({ line: 'abra', name: 'Calm Mind', type: 'psychic', glyph: 'eye', cd: 24, range: 0, target: 'self', desc: '+40% damage and 20% less damage taken for 8 seconds.',
+    eff: { k: 'buff', who: 'squad', t: 8, mods: { dmg: 1.4, armor: 0.8 } } }),
+  lightscreen: A({ line: 'abra', name: 'Light Screen', type: 'psychic', glyph: 'shield', cd: 26, range: 0, target: 'self', desc: 'Allies nearby take 40% less damage from ranged attacks for 6 seconds.',
+    eff: { k: 'buff', who: 'allies', radius: 4, t: 6, mods: { rangedArmor: 0.6 } } }),
+  magicguard: P({ line: 'abra', name: 'Magic Guard', type: 'psychic', glyph: 'shield', desc: 'Burn and poison do no damage.', mods: { magicguard: 1 } }),
+  telepathy: P({ line: 'abra', name: 'Telepathy', type: 'psychic', glyph: 'eye', desc: 'Dodges 20% of attacks.', mods: { dodge: 0.2 } }),
+  // --- Duraludon line
+  electroshot: A({ line: 'duraludon', name: 'Electro Shot', type: 'electric', glyph: 'beam', cd: 20, range: 9, desc: 'Charges for 2 s, then fires a huge beam; afterwards +40% damage for 6 s.',
+    eff: { k: 'line', each: true, charge: 2, dmg: 110, width: 14, selfbuff: { t: 6, mods: { dmg: 1.4 } } } }),
+  flashcannon: A({ line: 'duraludon', name: 'Flash Cannon', type: 'steel', glyph: 'beam', cd: 14, range: 8, desc: 'Every member fires a beam of light.',
+    eff: { k: 'line', each: true, dmg: 55, width: 12 } }),
+  dracometeor: A({ line: 'duraludon', name: 'Draco Meteor', type: 'dragon', glyph: 'rock', cd: 26, range: 9, desc: 'Meteors rain on an area. Lowers its own damage for 6 s.',
+    eff: { k: 'area', radius: 2.6, dmg: 90, delay: 1.2, bld: 0.6, selfdebuff: { t: 6, mods: { dmg: 0.7 } } } }),
+  irondefense: A({ line: 'duraludon', name: 'Iron Defense', type: 'steel', glyph: 'shield', cd: 22, range: 0, target: 'self', desc: 'Takes half damage for 6 seconds.',
+    eff: { k: 'buff', who: 'squad', t: 6, mods: { armor: 0.5 } } }),
+  stamina: P({ line: 'duraludon', name: 'Stamina', type: 'steel', glyph: 'shell', desc: 'Every hit taken raises its defense (up to 36% less damage).', mods: { stamina: 6 } }),
+  stalwart: P({ line: 'duraludon', name: 'Stalwart', type: 'steel', glyph: 'rod', desc: 'Cannot be pushed or pulled, and +2 range.', mods: { stalwart: 1, range: 2 } }),
   airlock: P({ line: 'rayquaza', name: 'Air Lock', type: 'dragon', glyph: 'shield', desc: 'Immune to sleep, paralysis, slow, burn and poison.', mods: { immune: 1 }, legend: true }),
 };
 export const SKILL_KEYS = Object.keys(SKILLS);
@@ -364,6 +492,7 @@ export const skillsOf = (line) => SKILL_KEYS.filter((k) => SKILLS[k].line === li
 export const DEFAULT_ITEMS = {
   machop: 'amuletcoin', charmander: 'charizardite', squirtle: 'blastoisinite', bulbasaur: 'venusaurite', geodude: 'quickclaw',
   eevee: 'eviolite', pikachu: 'expertbelt', pidgey: 'pidgeotite', snorlax: 'leftovers', rayquaza: 'shellbell',
+  timburr: 'amuletcoin', mewtwo: 'mewtwonitey', gastly: 'gengarite', machopf: 'choiceband', abra: 'alakazite', duraludon: 'leftovers',
 };
 export const DEFAULT_SKILLS = {
   machop: ['hustle', 'strength', 'bulkup'],
@@ -376,6 +505,12 @@ export const DEFAULT_SKILLS = {
   pidgey: ['hurricane', 'roost', 'keeneye'],
   snorlax: ['bodyslam', 'rest', 'thickfat'],
   rayquaza: ['ascent', 'dragonbreath', 'deltastream'],
+  timburr: ['repair', 'construction', 'ironfist'],
+  mewtwo: ['psystrike', 'barrier', 'pressure'],
+  gastly: ['shadowball', 'hypnosis', 'levitate'],
+  machopf: ['crosschop', 'dynamicpunch', 'noguard'],
+  abra: ['psybeam', 'teleport', 'magicguard'],
+  duraludon: ['electroshot', 'flashcannon', 'stamina'],
 };
 // research for a skill: sk_<key>
 export const skillResearch = (k) => 'sk_' + k;
@@ -408,9 +543,9 @@ export function reinforceCost(type) {
 // ---------------------------------------------------------------- decks
 // A deck has 8 slots: 1 worker, 1 legendary and 6 fighters, each with a held item and 3 skills.
 export const DECK_POOL = {
-  worker: ['machop'],
-  legend: ['rayquaza'],
-  fighter: ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee', 'pikachu', 'pidgey', 'snorlax'],
+  worker: ['machop', 'timburr'],
+  legend: ['rayquaza', 'mewtwo'],
+  fighter: ['charmander', 'squirtle', 'bulbasaur', 'geodude', 'eevee', 'pikachu', 'pidgey', 'snorlax', 'gastly', 'machopf', 'abra', 'duraludon'],
 };
 export const DECK_CLASSES = ['worker', 'legend', 'fighter', 'fighter', 'fighter', 'fighter', 'fighter', 'fighter'];
 export const lineClass = (line) => Object.keys(DECK_POOL).find((c) => DECK_POOL[c].includes(line));
@@ -437,6 +572,12 @@ export const AI_DECKS = [
     slots: [slot('machop', ['hustle', 'strength', 'guts']), slot('rayquaza', ['ascent', 'outrage', 'airlock']), slot('snorlax', ['bodyslam', 'yawn', 'immunity'], 'leftovers'),
       slot('squirtle', ['healpulse', 'protect', 'shellarmor']), slot('bulbasaur', ['sleeppowder', 'solarbeam', 'poisonpoint']), slot('geodude', ['rockslide', 'rollout', 'solidrock'], 'rockyhelmet'),
       slot('eevee', ['swift', 'helpinghand', 'anticipation']), slot('charmander', ['flamethrower', 'firespin', 'solarpower'])],
+  },
+  {
+    name: 'Mind Games',
+    slots: [slot('timburr'), slot('mewtwo', ['psystrike', 'futuresight', 'pressure'], 'mewtwonitey'), slot('abra', ['psybeam', 'calmmind', 'magicguard']),
+      slot('gastly', ['shadowball', 'curse', 'levitate']), slot('machopf', ['crosschop', 'dynamicpunch', 'noguard']), slot('duraludon', ['electroshot', 'dracometeor', 'stamina']),
+      slot('squirtle', ['healpulse', 'hydropump', 'shellarmor']), slot('pikachu', ['thunder', 'thunderwave', 'static'])],
   },
 ];
 

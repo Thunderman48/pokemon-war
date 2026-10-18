@@ -398,6 +398,79 @@ function applyStatusTest(w, u) {
   ok(w6.players[0].deck.name === 'Sky Storm' && w6.inDeck(0, 'pidgey') && !w6.inDeck(0, 'snorlax'), 'a player brings their own deck');
 }
 
+// V3 Pokémon: Timburr repairs, Mewtwo's stone picks Mega X or Y, Teleport, Curse, Night Shade, Pressure, Stalwart, Electro Shot
+{
+  const deck = AI_DECKS.find((d) => d.name === 'Mind Games');
+  const w7 = new World({ seed: 31, players: [{ deck }, {}] });
+  const A = w7.players[0], B = w7.players[1];
+  A.noFog = B.noFog = true;
+  ok(w7.unitsOf(0).every((u) => u.type === 'timburr'), 'a Timburr deck starts with Timburr workers');
+  const c0 = w7.buildingsOf(0)[0];
+  c0.hp = c0.maxHp * 0.5;
+  A.research.sk_repair = 1;
+  for (const u of w7.unitsOf(0)) u.order = { type: 'idle' };
+  run(w7, 8);
+  ok(c0.hp > c0.maxHp * 0.5 + 20, `idle Timburr repaired the Center (${Math.round(c0.hp)}/${c0.maxHp})`);
+  const sq = (type, pid, x, y) => { const q = w7.addSquad(type, pid, x * TILE, y * TILE); q.auto = false; return q; };
+  // Mewtwo: Mewtwonite Y in this deck
+  A.research.keystone = 1;
+  const mq = sq('mewtwo', 0, 30, 30);
+  w7.issue(0, { c: 'mega', ids: mq.members });
+  run(w7, MEGA.transform + 0.1);
+  ok(w7.leaderOf(mq).form === 'megamewtwoy', 'Mewtwonite Y -> Mega Mewtwo Y');
+  // Pressure slows enemy attacks nearby
+  A.research.sk_pressure = 1;
+  const near = w7.addUnit('charmander', 1, 32 * TILE, 30 * TILE);
+  const cd0 = w7.stats(near).cd;
+  w7.buildHash();
+  mq.scan = 0; w7.squadSkills(mq);
+  ok(w7.stats(near).cd > cd0 * 1.2, 'Pressure slows nearby enemies');
+  // Teleport moves the whole squad
+  A.research.sk_teleport = 1;
+  A.deck.slots[2].skills = ['psybeam', 'teleport', 'magicguard']; A.deckKey = 'tp';
+  const ab = sq('abra', 0, 10, 50);
+  w7.issue(0, { c: 'cast', ids: ab.members, key: 'teleport', x: 16 * TILE, y: 50 * TILE });
+  run(w7, 0.2);
+  ok(w7.squadUnits(ab).every((m) => Math.abs(m.x - 16 * TILE) < 30), 'Teleport moved the whole squad');
+  // Curse makes enemies take more damage; Night Shade ignores types
+  A.deck.slots[3].skills = ['shadowball', 'curse', 'nightshade']; A.deckKey = 'gh';
+  A.research.sk_curse = 1; A.research.sk_nightshade = 1;
+  const gq = sq('gastly', 0, 40, 50);
+  const dummy = w7.addUnit('snorlax', 1, 44 * TILE, 50 * TILE); dummy.stun = 30;
+  w7.buildHash();
+  w7.issue(0, { c: 'cast', ids: gq.members, key: 'curse', x: dummy.x, y: dummy.y });
+  run(w7, 0.2);
+  let h = dummy.hp; w7.damage(dummy, 20, 0, 0);
+  ok(Math.abs((h - dummy.hp) - 27) < 0.01, 'Curse: +35% damage taken');
+  h = dummy.hp;
+  w7.issue(0, { c: 'cast', ids: gq.members, key: 'nightshade', x: dummy.x, y: dummy.y });
+  run(w7, 0.2);
+  ok(Math.abs((h - dummy.hp) - 34 * 1.35) < 1, 'Night Shade deals fixed damage (ghost vs normal is not resisted)');
+  // Stalwart: no knock-back
+  A.deck.slots[5].skills = ['electroshot', 'flashcannon', 'stalwart']; A.deckKey = 'st';
+  A.research.sk_stalwart = 1; A.research.sk_electroshot = 1;
+  const dq = sq('duraludon', 0, 20, 20);
+  const dl = w7.leaderOf(dq);
+  const x0 = dl.x;
+  B.research.sk_hurricane = 1;
+  B.deck.slots.find((x) => x.line === 'pidgey') || (B.deck.slots[7] = { line: 'pidgey', skills: ['hurricane', 'roost', 'keeneye'], item: null });
+  B.deckKey = 'pg';
+  const pq = w7.addSquad('pidgey', 1, 26 * TILE, 20 * TILE); pq.auto = false;
+  w7.buildHash();
+  w7.issue(1, { c: 'cast', ids: pq.members, key: 'hurricane', x: dl.x, y: dl.y });
+  run(w7, 0.2);
+  ok(Math.abs(dl.x - x0) < 3, 'Stalwart: Duraludon cannot be knocked back');
+  // Electro Shot: charges, fires, then powers up
+  const target = w7.addUnit('snorlax', 1, 26 * TILE, 22 * TILE); target.stun = 30;
+  w7.buildHash();
+  const th = target.hp;
+  w7.issue(0, { c: 'cast', ids: dq.members, key: 'electroshot', x: target.x, y: target.y });
+  run(w7, 0.5);
+  ok(!!dl.charge && target.hp === th, 'Electro Shot is charging');
+  run(w7, 2);
+  ok(target.hp < th - 80 && dl.buffs && dl.buffs.some((b) => b.key === 'electroshot'), 'Electro Shot fired and powered Duraludon up');
+}
+
 // destroying the last Pokémon Center ends the game, even if other buildings remain
 const w2 = new World({ seed: 5, players: [{}, {}] });
 const c1 = w2.buildingsOf(1)[0];

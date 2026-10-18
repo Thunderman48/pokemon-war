@@ -176,6 +176,37 @@ export function drawMegaAura(R, e, x, y, top, now) {
       const rr = r * (0.3 + i * 0.16);
       ctx.beginPath(); ctx.ellipse(x, y - i * 3, rr, rr * 0.45, 0, -t * 5 + i, -t * 5 + i + 3.2); ctx.stroke();
     }
+  } else if (f === 'megagengar') {
+    // a pool of darkness that slows everything around it
+    const r = 5 * TILE;
+    const g = ctx.createRadialGradient(x, y, 4, x, y, r);
+    g.addColorStop(0, 'rgba(30,10,50,0.45)');
+    g.addColorStop(1, 'rgba(30,10,50,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 6; i++) {
+      const a = i + t * 0.8, d = r * (0.3 + (i % 3) * 0.2);
+      ctx.fillStyle = 'rgba(200,120,255,0.7)';
+      ctx.fillRect(Math.round(x + Math.cos(a) * d), Math.round(y + Math.sin(a) * d * 0.7 - ((t * 8 + i * 3) % 10)), 1, 3);
+    }
+  } else if (f === 'megaalakazam') {
+    // floating spoons orbit and a psychic shimmer
+    ctx.strokeStyle = 'rgba(248,120,200,0.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(x, top + 12, 20, 8, 0, 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 5; i++) {
+      const a = i / 5 * Math.PI * 2 + t * 1.5;
+      const sx = x + Math.cos(a) * 20, sy = top + 12 + Math.sin(a) * 8;
+      ctx.fillStyle = '#d8e0f0'; ctx.fillRect(Math.round(sx) - 1, Math.round(sy) - 3, 2, 2);
+      ctx.fillStyle = '#8890a8'; ctx.fillRect(Math.round(sx), Math.round(sy) - 1, 1, 3);
+    }
+  } else if (f === 'megamewtwox' || f === 'megamewtwoy') {
+    const c = f === 'megamewtwox' ? '90,140,255' : '220,120,255';
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 3; i++) {
+      const k = (t * 0.9 + i / 3) % 1;
+      ctx.strokeStyle = `rgba(${c},${0.5 * (1 - k)})`; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(x, y + 2, 10 + k * 26, (10 + k * 26) * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
+    }
   } else if (f === 'megarayquaza') {
     // Delta Stream: wind streams and rain around the dragon
     ctx.strokeStyle = 'rgba(200,230,255,0.45)'; ctx.lineWidth = 1;

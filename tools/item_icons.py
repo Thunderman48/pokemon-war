@@ -29,6 +29,10 @@ ITEMS = {
     "blastoisinite": stone("b", "B", "w"),
     "venusaurite": stone("g", "G", "y"),
     "pidgeotite": stone("C", "N", "w"),
+    "gengarite": stone("#", "@", "&"),
+    "alakazite": stone("^", "<", "w"),
+    "mewtwonitex": stone("K", "?", "w"),
+    "mewtwonitey": stone("%", "0", "w"),
     "keystone": [
         "...xxxx...",
         "..x1122x..",
