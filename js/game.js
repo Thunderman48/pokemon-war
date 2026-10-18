@@ -3,6 +3,7 @@ import { TICK, TILE, UNITS, FORMS, BUILDINGS, RESEARCH, SKILLS, EVO_XP, TYPE_COL
 import { World, isFlying } from './world.js';
 import { megaBlock } from './mega.js';
 import { megaTimeLeft } from './megafx.js';
+import { Sandbox } from './sandbox.js';
 import { AI } from './ai.js';
 import { Renderer } from './render.js';
 import { sfx, unlockAudio } from './audio.js';
@@ -21,10 +22,11 @@ export class Game {
     this.world = new World({
       seed,
       players: [{ name: mode === 'guest' ? 'Host' : 'You', deck: decks[0] },
-        { name: mode === 'ai' ? 'CPU' : mode === 'host' ? 'Guest' : 'You', deck: decks[1] || (mode === 'ai' ? AI.deckFor(difficulty, seed) : undefined) }],
+        { name: mode === 'ai' || mode === 'sandbox' ? 'CPU' : mode === 'host' ? 'Guest' : 'You', deck: decks[1] || (mode === 'ai' || mode === 'sandbox' ? AI.deckFor(difficulty, seed) : undefined) }],
       sim: mode !== 'guest',
     });
-    if (mode === 'ai') this.ai = new AI(this.world, 1, difficulty);
+    if (mode === 'ai' || mode === 'sandbox') this.ai = new AI(this.world, 1, difficulty);
+    this.speed = 1;
     this.selection = new Set();
     this.selSquads = new Set();
     this.placing = null;
@@ -58,6 +60,7 @@ export class Game {
     this.renderer.centerOn((s.tx + 1.5) * TILE, (s.ty + 2) * TILE);
     this.bind();
     if (conn) this.bindNet();
+    if (mode === 'sandbox') this.sb = new Sandbox(this);
     this.last = performance.now();
     this.frame = this.frame.bind(this);
     requestAnimationFrame(this.frame);
@@ -70,6 +73,7 @@ export class Game {
     if (this.conn) this.conn.close();
     $('game').hidden = true;
     $('place-bar').hidden = true;
+    if (this.sb) { this.sb.box.remove(); $('btn-sandbox').remove(); }
   }
 
   measure() {
@@ -119,15 +123,17 @@ export class Game {
     let alpha = 1;
     if (W.sim) {
       if (!this.paused) {
-        this.acc += dt;
+        this.acc += dt * this.speed;
         let steps = 0;
-        while (this.acc >= TICK && steps++ < 5) {
-          if (this.ai) this.ai.update(TICK);
+        const maxSteps = 5 * Math.max(1, this.speed);
+        while (this.acc >= TICK && steps++ < maxSteps) {
+          if (this.ai && !this.aiOff) this.ai.update(TICK);
           W.update(TICK);
           this.acc -= TICK;
           if (this.mode === 'host' && W.tick % 2 === 0) this.sendSnap();
         }
-        if (steps >= 5) this.acc = 0;
+        if (steps >= maxSteps) this.acc = 0;
+        if (this.sb) this.sb.tick();
       }
       alpha = Math.min(1, this.acc / TICK);
       if (W.fx.length) {
@@ -479,6 +485,7 @@ export class Game {
       if (ptype === 'mouse') this.confirmPlacement();
       return;
     }
+    if (this.sb && this.sb.spawn) { this.sb.place(w); return; }
     const units = this.selectedUnits();
     if (this.casting && units.length) {
       this.issue({ c: 'cast', ids: units.map((u) => u.id), key: this.casting, x: w.x, y: w.y });

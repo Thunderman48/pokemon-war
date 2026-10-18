@@ -81,6 +81,7 @@ export class World {
     this.projectiles = [];
     this.effects = [];
     this.zones = [];
+    this.cheats = null; // sandbox mode: { god, noEnd }
     this.sky = 0; // > 0 while Mega Rayquaza's storm darkens the sky
     this.pathBudget = 0;
     this.version = 0; // bumps when buildings/resources change (renderer cache)
@@ -1137,6 +1138,7 @@ export class World {
   damage(t, dmg, srcId, srcOwner, info = {}) {
     if (t.kind === 'unit') {
       if (t.mega && t.mega.phase === 'transform') return 0; // invincible while Mega Evolving
+      if (this.cheats && this.cheats.god && t.owner === 0 && !info.self) return 0;
       dmg *= 1 - 0.12 * this.rlevel(t.owner, 'defense');
       const m = this.mods(t);
       if (m.eviolite && FORMS[t.form].next) dmg *= m.eviolite;
@@ -1509,6 +1511,7 @@ export class World {
     this.players.forEach((p, pid) => {
       if (only !== undefined && pid !== only) return;
       const vis = this.vis[pid], exp = this.explored[pid];
+      if (p.reveal) { vis.fill(1); exp.fill(1); return; }
       vis.fill(0);
       for (const e of this.ents.values()) {
         if (e.owner !== pid) continue;
@@ -1528,6 +1531,7 @@ export class World {
 
   // A player is defeated as soon as all of their Pokémon Centers (their bases) are destroyed.
   checkWin(force) {
+    if (this.cheats && this.cheats.noEnd && !force) return;
     this.players.forEach((p, pid) => {
       if (!p.alive) return;
       if (!this.buildingsOf(pid).some((b) => b.type === 'center')) p.alive = false;

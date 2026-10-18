@@ -130,6 +130,10 @@ async function init() {
     }
   });
   deckEditor = new DeckEditor(refreshDeckPick);
+  $('btn-sandbox-start').addEventListener('click', () => {
+    unlockAudio();
+    start({ mode: 'sandbox', difficulty: 'normal', seed: Math.floor(Math.random() * 1e9), decks: [activeDeck()] });
+  });
   $('btn-host').addEventListener('click', hostGame);
   $('btn-join').addEventListener('click', joinGame);
   $('join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinGame(); });
@@ -156,7 +160,7 @@ async function init() {
   // pause menu
   $('btn-menu').addEventListener('click', () => {
     if (!game) return;
-    if (game.mode === 'ai') game.paused = true;
+    if (game.mode === 'ai' || game.mode === 'sandbox') game.paused = true;
     updateSoundBtn();
     $('btn-quit').textContent = 'SURRENDER';
     $('s-pause').hidden = false;
@@ -189,7 +193,7 @@ async function init() {
   });
   // pause when the tab is hidden (single player)
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && game && game.mode === 'ai' && !game.over) {
+    if (document.hidden && game && (game.mode === 'ai' || game.mode === 'sandbox') && !game.over) {
       game.paused = true;
       updateSoundBtn();
       $('s-pause').hidden = false;
