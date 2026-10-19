@@ -9,6 +9,8 @@ PAL_EXTRA = {
     ">": (196, 206, 222), "?": (72, 112, 184), "!": (66, 74, 100), "-": (140, 150, 172),
     "$": (196, 160, 150), "W": (156, 104, 52), "X": (148, 168, 206), "Z": (96, 114, 156),
     "I": (210, 64, 60), "K": (86, 128, 226), "J": (248, 230, 120),
+    # Archaludon
+    "{": (44, 58, 112), "}": (22, 28, 60), "[": (96, 120, 200), "]": (220, 74, 58), "|": (240, 200, 70),
 }
 
 SPRITES = {
@@ -198,30 +200,66 @@ SPRITES = {
         "...>>>>..>>>>>>>>...",
         "...!!!....!!!...>>>.",
     ],
-    "archaludon": [
-        ".........>>>>>>...........",
-        "........>>>>>>>>?.........",
-        ".......>>>?>>>>>>>........",
-        "......>>>>>>>wk>>>>.......",
-        "......>>>>>>>>>>>>>>>>....",
-        ".......>>>>>>>>...........",
-        "......I>>?>>>I............",
-        ".....II>?????>II..........",
-        "....II>>?>?>?>>II.........",
-        "...II.>>?????>>.II........",
-        "..!!..>>?>?>?>>..!!.......",
-        "......>>???????>>.........",
-        ".....>>>>>>>>>>>>>>>>>....",
-        "....>>>>>....>>>>>>>>>>>..",
-        "...>>>>.......>>....>>>>>.",
-        "...!!!!.......!!.......>>.",
-    ],
 }
+
+
+# ---------------------------------------------------------------- Archaludon (front view, drawn with polygons)
+AW, AH = 30, 32
+def poly_fill(grid, pts, ch, only=None):
+    ys = [p[1] for p in pts]
+    for y in range(max(0, int(min(ys))), min(AH, int(max(ys)) + 1)):
+        yc = y + 0.5
+        xs = []
+        n = len(pts)
+        for i in range(n):
+            (x1, y1), (x2, y2) = pts[i], pts[(i + 1) % n]
+            if (y1 <= yc < y2) or (y2 <= yc < y1):
+                xs.append(x1 + (yc - y1) * (x2 - x1) / (y2 - y1))
+        xs.sort()
+        for a, b in zip(xs[::2], xs[1::2]):
+            for x in range(max(0, int(round(a))), min(AW, int(round(b)))):
+                if only is None or grid[y][x] in only:
+                    grid[y][x] = ch
+
+def archaludon():
+    g = [['.'] * AW for _ in range(AH)]
+    mir = lambda pts: [(AW - x, y) for x, y in pts]
+    ident = lambda p: p
+    # four silver blade-pillars rising from the ground (outer ones tallest), broad feet at the bottom
+    for side in (ident, mir):
+        # outer blade, leaning outward
+        poly_fill(g, side([(4, 31), (8, 31), (8, 24), (6, 14), (1, 3), (1, 9), (3, 20)]), '>')
+        poly_fill(g, side([(6, 31), (8, 31), (8, 24), (6, 14), (3, 8), (5, 20)]), '-')
+        poly_fill(g, side([(1, 4), (2, 5), (3, 14), (2, 12)]), 'w')
+        # inner blade, shorter
+        poly_fill(g, side([(9, 31), (12, 31), (12, 24), (11, 17), (8, 9), (8, 16), (9, 24)]), '>')
+        poly_fill(g, side([(10.5, 31), (12, 31), (12, 24), (11, 17), (9.5, 13), (10.5, 24)]), '-')
+        poly_fill(g, side([(8, 10), (9, 12), (9, 19), (8, 16)]), 'w')
+        # dark feet
+        poly_fill(g, side([(2, 30), (13, 30), (13, 32), (2, 32)]), '!', only='>-w')
+    # yellow tips on the blades
+    for x, y in ((1, 3), (1, 4), (8, 9), (8, 10)):
+        g[y][x] = '|'; g[y][AW - 1 - x] = '|'
+    # the arching column: head prongs on top, navy body
+    poly_fill(g, [(12, 3), (12, 0), (14, 0), (15, 2), (16, 2), (17, 0), (19, 0), (19, 3), (19, 26), (17, 29), (14, 29), (12, 26)], '}')
+    poly_fill(g, [(13, 3), (13, 1), (14, 1), (15, 3), (16, 3), (17, 1), (18, 1), (18, 3), (18, 26), (17, 28), (14, 28), (13, 26)], '{')
+    g[0][12] = g[0][13] = g[0][18] = g[0][17] = ']'  # red prong tips
+    # face/neck: white lattice like the bridge girders
+    for y in range(4, 12):
+        for x in range(13, 19):
+            if (x + y) % 4 == 1 or (x - y) % 4 == 1: g[y][x] = '*'
+    g[5][14] = g[5][17] = 'k'
+    # lower body: blue panel with red stripes running down
+    poly_fill(g, [(14, 12), (18, 12), (18, 25), (16, 28), (14, 25)], '[')
+    for y in range(12, 27):
+        if y < 26: g[y][14] = ']'
+        if y < 25: g[y][16] = ']'
+    return [''.join(r) for r in g]
 
 
 def build(S):
     """Forms built on top of other sprites (Machop fighter, Megas)."""
-    out = {"machopf": list(S["machop"])}
+    out = {"machopf": list(S["machop"]), "archaludon": archaludon()}
     G = {**S, **SPRITES}
     out["megagengar"] = place(G["gengar"], 24, 18, 3, 4, overlays=[
         # more spikes, a third eye on the forehead and a dark shadow pool
