@@ -525,7 +525,28 @@ ALL = {
     "res/berry.png": berry, "res/crystal.png": crystal,
 }
 
+BOLD = True  # 2px "bold" outline; set False for the thin 1px look
+
+
+def bolden(c):
+    """add a second outline ring outside the sprite (canvas grows by 1px each side)"""
+    big = Canvas(c.w + 2, c.h + 2)
+    big.im.alpha_composite(c.im, (1, 1))
+    ring = []
+    for y in range(big.h):
+        for x in range(big.w):
+            if big.p[x, y][3]:
+                continue
+            if any(big.get(x + dx, y + dy)[3] for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                ring.append((x, y))
+    for x, y in ring:
+        big.px(x, y, OUT)
+    return big
+
+
 if __name__ == "__main__":
     for rel, fn in ALL.items():
         im = fn()
+        if BOLD:
+            im = bolden(im)
         print("wrote", im.save(rel), im.im.size)
